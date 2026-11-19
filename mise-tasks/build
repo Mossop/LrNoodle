@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+#MISE description="Builds LrNoodle.zip without running the checks"
+#MISE wait_for=["stylua", "luacheck", "typecheck"]
+set -e
+
+root="${MISE_CONFIG_ROOT:-$(pwd)}"
+
+staging=$(mktemp -d)
+cp -R "$root/LrNoodle.lrdevplugin" "$staging/LrNoodle.lrplugin"
+sed -e 's/org\.pixelbin\.lrnoodle-dev/org.pixelbin.lrnoodle/' \
+    -e 's/LrNoodle-Dev/LrNoodle/' \
+    "$root/LrNoodle.lrdevplugin/Info.lua" > "$staging/LrNoodle.lrplugin/Info.lua"
+rm -f "$root/LrNoodle.zip"
+(cd "$staging" && zip -r9 "$root/LrNoodle.zip" LrNoodle.lrplugin)
+rm -rf "$staging"

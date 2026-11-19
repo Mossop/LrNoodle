@@ -3,6 +3,8 @@ name: Checks
 on:
   push:
   pull_request:
+  # Lets the release workflow run the checks first.
+  workflow_call:
 
 jobs:
   stylua:

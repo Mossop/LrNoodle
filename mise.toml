@@ -24,3 +24,7 @@ wait_for = ["stylua"]
 [tasks.stylua]
 description = "Format the plugin with StyLua"
 run = "stylua LrNoodle.lrdevplugin"
+
+[tasks.package]
+description = "Checks and packages the plugin"
+depends = ["stylua", "luacheck", "typecheck", "build"]
