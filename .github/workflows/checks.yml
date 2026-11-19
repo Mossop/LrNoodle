@@ -1,0 +1,40 @@
+name: Checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  stylua:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          install_args: stylua
+      - run: stylua --check LrNoodle.lrdevplugin
+
+  luacheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y lua-check
+      - run: luacheck LrNoodle.lrdevplugin
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Mossop/lightroom-lua
+          path: lightroom-lua
+      # .luarc.json points at a local checkout of lightroom-lua, so point it at the one above.
+      - name: Use lightroom-lua checkout
+        run: |
+          jq --arg lib "$GITHUB_WORKSPACE/lightroom-lua/library" '."workspace.library" = [$lib]' .luarc.json > luarc.tmp
+          mv luarc.tmp .luarc.json
+      - uses: jdx/mise-action@v2
+        with:
+          install_args: lua-language-server
+      - run: lua-language-server --check=LrNoodle.lrdevplugin --configpath="$GITHUB_WORKSPACE/.luarc.json" --checklevel=Warning
