@@ -1,0 +1,24 @@
+[tools]
+lua = "5.1.5"
+stylua = "2.6.0"
+lua-language-server = "3.19.2"
+
+[tasks.setup]
+run = ["luarocks install luacheck"]
+
+[tasks.test]
+run = "python -m pytest tests"
+
+[tasks.luacheck]
+description = "Lint the plugin with luacheck"
+run = "luacheck LrNoodle.lrdevplugin"
+wait_for = ["stylua"]
+
+[tasks.typecheck]
+description = "Type check the plugin with lua-language-server"
+run = "lua-language-server --check=LrNoodle.lrdevplugin --configpath={{config_root}}/.luarc.json --checklevel=Warning"
+wait_for = ["stylua"]
+
+[tasks.stylua]
+description = "Format the plugin with StyLua"
+run = "stylua LrNoodle.lrdevplugin"
