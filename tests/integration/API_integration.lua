@@ -1,5 +1,7 @@
 local server = require("server")
+local catalog = require("lr_catalog")
 local API = require("API")
+local Sidecar = require("Sidecar")
 local Utils = require("Utils")
 
 -- Lightroom timestamps: 2001-01-01T00:00:00Z and 2001-01-02T01:00:00Z.
@@ -114,19 +116,6 @@ describe("API against a real server", function()
   end)
 
   describe("deletion", function()
-    -- A forced deletion isn't always visible straight away on a slow server,
-    -- so wait up to 10 seconds for the asset to go.
-    ---@param id string
-    local function waitUntilDeleted(id)
-      for _ = 1, 50 do
-        if not ok(api:assetExists(id)) then
-          return
-        end
-        os.execute("sleep 0.2")
-      end
-      error("Asset " .. id .. " still exists", 2)
-    end
-
     it("moves assets to the trash and restores them", function()
       local id = upload()
 
@@ -143,7 +132,7 @@ describe("API against a real server", function()
       local id = upload()
 
       ok(api:deleteAssets({ id }, true))
-      waitUntilDeleted(id)
+      server.waitUntilDeleted(api, id)
     end)
 
     it("permanently deletes trashed assets when forced", function()
@@ -151,24 +140,170 @@ describe("API against a real server", function()
 
       ok(api:deleteAssets({ id }))
       ok(api:deleteAssets({ id }, true))
-      waitUntilDeleted(id)
+      server.waitUntilDeleted(api, id)
     end)
   end)
 
+  -- After a replacement the asset's metadata should match Lightroom's as
+  -- closely as possible, so Lightroom's metadata wins over anything set in the
+  -- gallery. Details only the gallery has are copied from the old asset.
   describe("copying", function()
-    it("copies favorites and albums to the new asset", function()
-      local old = upload()
-      local new = upload()
-      local album = ok(api:createAlbum("Copy source"))
-      ok(api:addAssetsToAlbum(album.id, { old }))
-      ok(setup:request("PUT", "/assets", { ids = { old }, isFavorite = true }))
+    -- The details of an asset that copying should either keep or replace.
+    ---@param id string
+    local function details(id)
+      local asset = ok(api:getAsset(id))
+      local exif = asset.exifInfo or {}
+
+      local tags = {}
+      for _, tag in ipairs(asset.tags or {}) do
+        table.insert(tags, tag.value)
+      end
+
+      local albums = {}
+      for _, album in ipairs(ok(api:getAlbumsForAsset(id))) do
+        table.insert(albums, album.id)
+      end
+
+      return {
+        description = exif.description or "",
+        rating = exif.rating,
+        dateTimeOriginal = exif.dateTimeOriginal,
+        latitude = exif.latitude,
+        longitude = exif.longitude,
+        tags = sorted(tags),
+        isFavorite = asset.isFavorite,
+        visibility = asset.visibility,
+        albums = sorted(albums),
+      }
+    end
+
+    -- The server reads metadata in the background, so this waits for the
+    -- asset's details to match before asserting them, which shows the
+    -- differences if they never do.
+    local function assertDetails(expected, id)
+      pcall(server.waitFor, "the asset's details", function()
+        return (pcall(assert.same, expected, details(id)))
+      end)
+      assert.same(expected, details(id))
+    end
+
+    -- Tag names must be unique on the server.
+    local tagCount = 0
+
+    -- Uploads an asset and gives it details in the gallery, checking that the
+    -- server stored them. Returns the asset ID and its album.
+    ---@return string, string
+    local function galleryAsset()
+      tagCount = tagCount + 1
+      local tagName = "Gallery tag " .. tagCount
+
+      local id = upload()
+      -- Let the server read the file's own metadata first so it can't replace
+      -- what is set below.
+      server.waitFor("the server to read the file's metadata", function()
+        local exif = ok(api:getAsset(id)).exifInfo
+        return exif and exif.exifImageWidth
+      end)
+
+      local album = ok(api:createAlbum("Made in the gallery"))
+      ok(api:addAssetsToAlbum(album.id, { id }))
+      ok(setup:request("PUT", "/assets/" .. id, {
+        description = "Added in the gallery",
+        rating = 2,
+        dateTimeOriginal = "2010-06-01T12:00:00.000Z",
+        latitude = 51.5,
+        longitude = -0.12,
+        isFavorite = true,
+        visibility = "archive",
+      }))
+      local tag = ok(setup:request("POST", "/tags", { name = tagName }))
+      ok(setup:request("PUT", "/tags/" .. tag.id .. "/assets", { ids = { id } }))
+
+      assertDetails({
+        description = "Added in the gallery",
+        rating = 2,
+        dateTimeOriginal = "2010-06-01T12:00:00+00:00",
+        latitude = 51.5,
+        longitude = -0.12,
+        tags = { tagName },
+        isFavorite = true,
+        visibility = "archive",
+        albums = { album.id },
+      }, id)
+
+      return id, album.id
+    end
+
+    -- A copy of details with some of them changed.
+    local function with(base, changes)
+      local result = {}
+      for key, value in pairs(base) do
+        result[key] = value
+      end
+      for key, value in pairs(changes) do
+        result[key] = value
+      end
+      return result
+    end
+
+    -- Uploads a new photo with a sidecar holding a Lightroom photo's metadata,
+    -- standing in for the metadata Lightroom embeds in a rendered photo. Checks
+    -- that the server has read the expected metadata before returning the
+    -- asset ID.
+    ---@return string
+    local function lightroomAsset(metadata, expected)
+      local path = server.photo()
+      local sidecarPath = path .. ".xmp"
+      ok(Sidecar.write(sidecarPath, assert(Sidecar.build(catalog.newPhoto(1, metadata), {}))))
+
+      local result = ok(api:uploadAsset(path, "photo.jpg", dates, sidecarPath))
+      os.remove(path)
+      os.remove(sidecarPath)
+      assert.equals("created", result.status)
+
+      assertDetails(with(expected, { isFavorite = false, visibility = "timeline", albums = {} }), result.id)
+
+      return result.id
+    end
+
+    it("keeps the gallery's details but uses Lightroom's metadata", function()
+      local old, album = galleryAsset()
+      local lightroom = {
+        description = "From Lightroom",
+        rating = 4,
+        dateTimeOriginal = "2001-01-02T01:00:00+00:00",
+        latitude = 48.8584,
+        longitude = -2.2945,
+        tags = { "Paris" },
+      }
+      local new = lightroomAsset({
+        -- 2001-01-02T01:00:00Z
+        dateTimeOriginal = 90000,
+        rating = 4,
+        gps = { latitude = 48.8584, longitude = -2.2945 },
+        keywords = { catalog.newKeyword("Paris") },
+        formatted = { caption = "From Lightroom", keywordTagsForExport = "Paris" },
+      }, lightroom)
 
       assert.is_true(ok(api:copyFromAsset(old, new)))
 
-      assert.is_true(ok(api:getAsset(new)).isFavorite)
-      local albums = ok(api:getAlbumsForAsset(new))
-      assert.equals(1, #albums)
-      assert.equals(album.id, albums[1].id)
+      assertDetails(with(lightroom, { isFavorite = true, visibility = "archive", albums = { album } }), new)
+    end)
+
+    it("uses Lightroom's metadata even where Lightroom has none", function()
+      local old, album = galleryAsset()
+      -- The sidecar's capture date differs from the upload's file dates, so
+      -- seeing it shows the server has read the sidecar.
+      local lightroom = {
+        description = "",
+        dateTimeOriginal = "2001-01-02T01:00:00+00:00",
+        tags = {},
+      }
+      local new = lightroomAsset({ dateTimeOriginal = 90000 }, lightroom)
+
+      assert.is_true(ok(api:copyFromAsset(old, new)))
+
+      assertDetails(with(lightroom, { isFavorite = true, visibility = "archive", albums = { album } }), new)
     end)
 
     it("does nothing when the old asset is missing", function()

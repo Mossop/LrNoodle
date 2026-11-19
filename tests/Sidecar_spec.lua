@@ -1,31 +1,9 @@
 local lr = require("lr_stubs")
+local catalog = require("lr_catalog")
 local Utils = require("Utils")
 local Sidecar = require("Sidecar")
 
-local function newKeyword(name, parent, includeOnExport, keywordType, synonyms)
-  local keyword = {
-    name = name,
-    parent = parent,
-    includeOnExport = includeOnExport ~= false,
-    keywordType = keywordType,
-    synonyms = synonyms or {},
-  }
-
-  function keyword:getName()
-    return self.name
-  end
-  function keyword:getParent()
-    return self.parent
-  end
-  function keyword:getAttributes()
-    return { includeOnExport = self.includeOnExport, keywordType = self.keywordType }
-  end
-  function keyword:getSynonyms()
-    return self.synonyms
-  end
-
-  return keyword
-end
+local newKeyword = catalog.newKeyword
 
 local function newPhoto(raw, formatted)
   local photo = { raw = raw or {}, formatted = formatted or {} }

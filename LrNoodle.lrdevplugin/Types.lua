@@ -13,9 +13,16 @@
 ---@field name string
 ---@field email string
 
+---@alias AssetVisibility
+---| "timeline"
+---| "archive"
+---| "hidden"
+---| "locked"
+
 ---@class Asset
 ---@field id string
 ---@field isTrashed boolean
+---@field visibility AssetVisibility? Missing on servers too old to have it.
 
 ---@class AssetDates
 ---@field created number Lightroom timestamp for when the photo was captured.

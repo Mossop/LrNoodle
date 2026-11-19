@@ -111,9 +111,30 @@ function M.photo()
   source:close()
 
   photoCount = photoCount + 1
-  local path = os.tmpname()
+  -- The plugin uploads with the file's name, so it needs the extension.
+  local base = os.tmpname()
+  os.remove(base)
+  local path = base .. ".jpg"
   local file = assert(io.open(path, "wb"))
   file:write(content, "unique " .. os.time() .. " " .. photoCount)
+  file:close()
+
+  return path
+end
+
+-- Copies the fixture video to a temporary file and returns its path. The
+-- caller should remove the file.
+---@return string
+function M.video()
+  local source = assert(io.open("tests/integration/fixtures/video.mp4", "rb"))
+  local content = source:read("*a")
+  source:close()
+
+  local base = os.tmpname()
+  os.remove(base)
+  local path = base .. ".mp4"
+  local file = assert(io.open(path, "wb"))
+  file:write(content)
   file:close()
 
   return path
@@ -130,6 +151,52 @@ function M.reset()
 
   local API = require("API")
   return API.new({ url = M.url, apiKey = apiKey }), API.new({ url = M.url, apiKey = setupApiKey })
+end
+
+-- The server does some work, such as reading metadata, in the background. This
+-- calls check until it returns a value, for up to 10 seconds, and returns it.
+---@generic T
+---@param what string Describes what is being waited for.
+---@param check fun(): T?
+---@return T
+function M.waitFor(what, check)
+  for _ = 1, 50 do
+    local result = check()
+    if result then
+      return result
+    end
+    os.execute("sleep 0.2")
+  end
+  error("Timed out waiting for " .. what, 2)
+end
+
+-- A forced deletion isn't always visible straight away on a slow server, so
+-- this waits up to 10 seconds for the asset to go.
+---@param api API
+---@param id string
+function M.waitUntilDeleted(api, id)
+  local Utils = require("Utils")
+  for _ = 1, 50 do
+    local exists = api:assetExists(id)
+    if Utils.isError(exists) then
+      error("Checking asset " .. id .. " failed: " .. Utils.errorString(exists), 2)
+    end
+    if not Utils.result(exists) then
+      return
+    end
+    os.execute("sleep 0.2")
+  end
+  error("Asset " .. id .. " still exists", 2)
+end
+
+-- Publish settings for the test server using the plugin's API key. Only valid
+-- after reset().
+---@return PublishSettings
+function M.settings()
+  return {
+    url = M.url,
+    apiKey = apiKey --[[@as string]],
+  }
 end
 
 return M

@@ -49,8 +49,9 @@ LuaLS warnings about busted globals in `tests/` are expected and can be ignored.
 - Missing assets and albums are sometimes reported as `400 {"message":"Not found ..."}` rather than 404.
   `parseResponse` maps these to `notFound`.
 - Uploads return `status = "duplicate"` with an existing asset's ID when the server already has an
-  identical file. That asset may not belong to the plugin, so it is used as is: never copied over or
-  deleted.
+  identical file. That asset may not have been uploaded by the plugin, so the upload that matched it uses
+  it as is: nothing is copied over it and it isn't deleted. Once it is recorded as a photo's asset it is
+  treated like any other (see the user decisions below).
 - `PUT /assets/copy` copies the sidecar by default. The plugin always sends `sidecar = false` so a new
   sidecar isn't overwritten.
 - `DELETE /assets` moves to the trash unless `force = true`.
@@ -68,6 +69,11 @@ LuaLS warnings about busted globals in `tests/` are expected and can be ignored.
 - A replacement uploads a new asset, then copies the old asset's details to it with `copyFromAsset`. The
   copy doesn't include shared spaces, so `copySpaces` adds the new asset to any space that showed the old
   asset but doesn't show the new one (spaces linked to albums already show it, since albums are copied).
+  It doesn't include the visibility (archived, hidden, locked) either, so `copyFromAsset` sets that.
+- After publishing, an asset's metadata should match Lightroom's as closely as possible. Lightroom's
+  metadata (description, rating, capture date, location, keywords as tags) comes from the new upload and
+  wins over anything set in the gallery, even where Lightroom has no value. Only details the gallery alone
+  has (albums, favourite, shared links, stack, visibility, shared spaces) are copied from the old asset.
 - `publishAndRecord` protects everything from the upload until `recordPublishedPhotoId`. If anything fails,
   including exceptions and cancellation, an asset created by the upload is permanently deleted.
 - Only after the new ID is recorded does `finishPublish` clean up the assets previously used for the photo.
@@ -105,4 +111,11 @@ must degrade gracefully: Immich returns 404 for them, which `getAssetSpaces` tre
   export behaviour: "Remove Person Info" drops person keywords and their parents; "Export Containing
   Keywords" affects the flat list but not the hierarchical paths.
 - Published photo URLs are `<gallery>/photos/<assetId>`.
+- An asset recorded for a photo through a duplicate upload response, e.g. one uploaded by the gallery's
+  mobile app, is replaced and permanently deleted like a plugin-uploaded asset if the photo later changes.
+  The plugin can't tell the two apart since only the asset ID is stored, and this is accepted, including
+  losing the asset's original file. README.md documents it.
+- Problems caused by virtual copies that render byte-identical files, and so share one asset through a
+  duplicate upload response, are intentionally ignored. Don't raise them, propose fixes for them or ask
+  about them.
 - The user manages version control (jj). Don't commit.

@@ -269,6 +269,18 @@ function API:copyFromAsset(oldId, newId)
     return Utils.error(copied)
   end
 
+  -- The copy doesn't include the visibility, which only the gallery sets. A
+  -- new asset is on the timeline.
+  local visibility = Utils.result(old).visibility
+  if visibility and visibility ~= "timeline" then
+    logger:debug("Setting visibility of asset", newId, "to", visibility)
+    local updated = self:request("PUT", "/assets", { ids = { newId }, visibility = visibility })
+    if Utils.isError(updated) then
+      logger:warn("Failed to copy visibility of asset", oldId, "to", newId, Utils.errorString(updated))
+      return Utils.error(updated)
+    end
+  end
+
   return true
 end
 

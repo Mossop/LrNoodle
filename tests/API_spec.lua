@@ -371,6 +371,38 @@ describe("API", function()
       assert.are.same({ sourceId = "old", targetId = "new", sidecar = false }, body(2))
     end)
 
+    it("copies the visibility, which the copy leaves out", function()
+      lr.respondJson(200, { id = "old", visibility = "archive" })
+      lr.respond({ status = 204 })
+      lr.respond({ status = 204 })
+
+      assert.is_true(newApi():copyFromAsset("old", "new"))
+
+      assert.are.equal(3, #lr.http.requests)
+      assert.are.equal("PUT", request(3).method)
+      assert.are.equal("https://gallery.example.com/api/assets", request(3).url)
+      assert.are.same({ ids = { "new" }, visibility = "archive" }, body(3))
+    end)
+
+    it("leaves a new asset on the timeline", function()
+      lr.respondJson(200, { id = "old", visibility = "timeline" })
+      lr.respond({ status = 204 })
+
+      assert.is_true(newApi():copyFromAsset("old", "new"))
+      assert.are.equal(2, #lr.http.requests)
+    end)
+
+    it("returns failures copying the visibility", function()
+      lr.respondJson(200, { id = "old", visibility = "locked" })
+      lr.respond({ status = 204 })
+      lr.respond({ status = 403 })
+
+      local result = newApi():copyFromAsset("old", "new")
+
+      assert.is_true(Utils.isError(result))
+      assert.are.equal("badApiKey", Utils.error(result).code)
+    end)
+
     it("skips the copy when the old asset is gone", function()
       lr.respond({ status = 404 })
 

@@ -64,7 +64,9 @@ The API key can be given every permission, or limited to just the ones the plugi
 - **Photos deleted in the gallery**: if a photo or album has been deleted in the gallery it is uploaded or
   created again the next time you publish. Assets in the gallery's trash are restored.
 - **Duplicates**: if the gallery already has an identical file, for example one uploaded from your phone,
-  that asset is used as it is. The plugin never deletes an asset it didn't upload in this way.
+  that asset is used as it is instead of uploading another copy. If you later change the photo in
+  Lightroom, that asset is replaced like any other: the new upload takes over its albums, favourite and so
+  on, and the existing asset, including its original file, is permanently deleted.
 - **Errors**: if publishing a photo fails part way through, anything uploaded for it is removed again so
   nothing is left behind in the gallery.
 
