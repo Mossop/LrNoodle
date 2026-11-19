@@ -173,6 +173,25 @@ function API:ensureAsset(id)
   return true
 end
 
+--- Checks whether an asset exists on the server, including in the trash,
+--- without restoring it.
+---@param id string
+---@return boolean | Error
+function API:assetExists(id)
+  local asset = self:getAsset(id)
+  if Utils.isError(asset) then
+    if Utils.error(asset).code == "notFound" then
+      logger:debug("Asset", id, "does not exist")
+      return false
+    end
+
+    return Utils.error(asset)
+  end
+
+  logger:debug("Asset", id, Utils.result(asset).isTrashed and "is in the trash" or "exists")
+  return true
+end
+
 ---@param ids string[]
 ---@return true | Error
 function API:restoreAssets(ids)
@@ -257,6 +276,60 @@ end
 ---@return Album | Error
 function API:getAlbum(id)
   return self:request("GET", "/albums/" .. id)
+end
+
+--- The albums that contain an asset.
+---@param assetId string
+---@return Album[] | Error
+function API:getAlbumsForAsset(assetId)
+  return self:request("GET", "/albums?assetId=" .. assetId)
+end
+
+-- The most assets the server accepts in one spaces lookup.
+local SPACES_BATCH = 1000
+
+--- The shared spaces that show each of the given assets, by any route. Only
+--- Noodle Gallery has shared spaces; an Immich server reports none.
+---@param assetIds string[]
+---@return { [string]: string[] } | Error # Space IDs keyed by asset ID. Assets in no spaces are left out.
+function API:getAssetSpaces(assetIds)
+  ---@type { [string]: string[] }
+  local spaces = {}
+
+  for first = 1, #assetIds, SPACES_BATCH do
+    ---@type string[]
+    local batch = {}
+    for i = first, math.min(first + SPACES_BATCH - 1, #assetIds) do
+      table.insert(batch, assetIds[i])
+    end
+
+    local result = self:request("POST", "/assets/spaces", { assetIds = batch })
+    if Utils.isError(result) then
+      if Utils.error(result).code == "notFound" then
+        logger:debug("Server doesn't support shared spaces")
+        return {}
+      end
+      return Utils.error(result)
+    end
+
+    local response = Utils.result(result)
+    if type(response) ~= "table" or type(response.assets) ~= "table" then
+      return Utils.throw("serverError", { "unexpected shared spaces response" })
+    end
+
+    for _, item in ipairs(response.assets) do
+      spaces[item.assetId] = item.spaceIds
+    end
+  end
+
+  return spaces
+end
+
+---@param spaceId string
+---@param assetIds string[]
+---@return true | Error
+function API:addAssetsToSpace(spaceId, assetIds)
+  return self:request("POST", "/shared-spaces/" .. spaceId .. "/assets", { assetIds = assetIds })
 end
 
 ---@param name string

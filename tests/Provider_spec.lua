@@ -205,6 +205,11 @@ local function albumExists()
   lr.respondJson(200, { id = "album", albumName = "Holiday" })
 end
 
+-- Responds to a shared spaces lookup finding no spaces.
+local function noSpaces()
+  lr.respondJson(200, { assets = {} })
+end
+
 describe("Provider", function()
   before_each(function()
     lr.reset()
@@ -500,6 +505,7 @@ describe("Provider", function()
         lr.respondJson(201, { id = "new", status = "created" })
         lr.respondJson(200, { id = "old" })
         lr.respond({ status = 204 })
+        noSpaces()
         lr.respondJson(200, { { id = "new", success = true } })
         lr.respond({ status = 204 })
 
@@ -679,6 +685,8 @@ describe("Provider", function()
       lr.respondJson(200, { id = "current", isTrashed = false })
       lr.respondJson(200, { { id = "current", success = false, error = "duplicate" } })
       lr.respondJson(200, { id = "previous", isTrashed = false })
+      noSpaces()
+      lr.respondJson(200, { { id = "album", albumName = "Holiday" } })
       lr.respond({ status = 204 })
 
       publish(exportContext)
@@ -688,15 +696,66 @@ describe("Provider", function()
         "GET /assets/current",
         "PUT /albums/album/assets",
         "GET /assets/previous",
+        "POST /assets/spaces",
+        "GET /albums?assetId=previous",
         "DELETE /assets",
       }, calls())
-      assert.are.same({ ids = { "previous" }, force = true }, requestBody(5))
+      assert.are.same({ ids = { "previous" }, force = true }, requestBody(7))
       assert.is_true(rendition.skipped)
       assert.are.equal("current", rendition.recordedId)
       assert.is_nil(rendition.failure)
 
       -- The other copy already had the right asset so is left alone.
       assert.is_false(otherPublished.edited)
+      assert.are.same({}, lr.catalog.writeActions)
+    end)
+
+    it("marks other photos using a deleted old asset as edited", function()
+      local photo = newPhoto(1)
+      local virtualCopy = newPhoto(2)
+      local own = newPublishedPhoto(photo, "previous", false)
+      local sharing = newPublishedPhoto(virtualCopy, "previous", false)
+      local other = newCollection(11, "Other", "otherAlbum", { newPublishedPhoto(photo, "current", false) })
+      local collection = newCollection(10, "Holiday", "album", { own, sharing })
+      local rendition = newRendition(photo, "previous")
+      local exportContext = newExportContext(newService({ other, collection }), collection, { rendition })
+
+      albumExists()
+      lr.respondJson(200, { id = "current", isTrashed = false })
+      lr.respondJson(200, { { id = "current", success = true } })
+      lr.respondJson(200, { id = "previous", isTrashed = false })
+      noSpaces()
+      lr.respondJson(200, { { id = "album", albumName = "Holiday" } })
+      lr.respond({ status = 204 })
+
+      publish(exportContext)
+
+      assert.are.same({ ids = { "previous" }, force = true }, requestBody(7))
+      -- The virtual copy must be republished but this photo isn't touched.
+      assert.is_true(sharing.edited)
+      assert.is_false(own.edited)
+      assert.are.same({ "Update Published Photos" }, lr.catalog.writeActions)
+    end)
+
+    it("doesn't mark photos edited when deleting the old asset fails", function()
+      local photo = newPhoto(1)
+      local sharing = newPublishedPhoto(newPhoto(2), "previous", false)
+      local other = newCollection(11, "Other", "otherAlbum", { newPublishedPhoto(photo, "current", false) })
+      local collection = newCollection(10, "Holiday", "album", { sharing })
+      local rendition = newRendition(photo, "previous")
+      local exportContext = newExportContext(newService({ other, collection }), collection, { rendition })
+
+      albumExists()
+      lr.respondJson(200, { id = "current", isTrashed = false })
+      lr.respondJson(200, { { id = "current", success = true } })
+      lr.respondJson(200, { id = "previous", isTrashed = false })
+      noSpaces()
+      lr.respondJson(200, {})
+      lr.respond({ status = 500 })
+
+      publish(exportContext)
+
+      assert.is_false(sharing.edited)
       assert.are.same({}, lr.catalog.writeActions)
     end)
 
@@ -784,6 +843,9 @@ describe("Provider", function()
       lr.respondJson(200, { id = "current", isTrashed = false })
       lr.respondJson(200, { { id = "current", success = true } })
       lr.respondJson(200, { id = "stray", isTrashed = false })
+      noSpaces()
+      -- Only in published albums so it can be deleted.
+      lr.respondJson(200, { { id = "secondAlbum", albumName = "Second" } })
       lr.respond({ status = 204 })
 
       publish(exportContext)
@@ -793,14 +855,88 @@ describe("Provider", function()
         "GET /assets/current",
         "PUT /albums/album/assets",
         "GET /assets/stray",
+        "POST /assets/spaces",
+        "GET /albums?assetId=stray",
         "DELETE /assets",
       }, calls())
-      assert.are.same({ ids = { "stray" }, force = true }, requestBody(5))
+      assert.are.same({ ids = { "stray" }, force = true }, requestBody(7))
       assert.are.equal("current", rendition.recordedId)
 
       assert.are.equal("current", stray.remoteId)
       assert.is_true(stray.edited)
       assert.is_false(current.edited)
+    end)
+
+    it("deletes a stray asset already in the trash without restoring it", function()
+      local photo = newPhoto(1)
+      local stray = newPublishedPhoto(photo, "stray", true)
+      local first = newCollection(11, "First", "firstAlbum", { newPublishedPhoto(photo, "current", false) })
+      local second = newCollection(12, "Second", "secondAlbum", { stray })
+      local collection = newCollection(10, "Holiday", "album")
+      local exportContext =
+        newExportContext(newService({ first, second, collection }), collection, { newRendition(photo, nil) })
+
+      albumExists()
+      lr.respondJson(200, { id = "current", isTrashed = false })
+      lr.respondJson(200, { { id = "current", success = true } })
+      lr.respondJson(200, { id = "stray", isTrashed = true })
+      noSpaces()
+      lr.respondJson(200, {})
+      lr.respond({ status = 204 })
+
+      publish(exportContext)
+
+      assert.are.same({
+        "GET /albums/album",
+        "GET /assets/current",
+        "PUT /albums/album/assets",
+        "GET /assets/stray",
+        "POST /assets/spaces",
+        "GET /albums?assetId=stray",
+        "DELETE /assets",
+      }, calls())
+      assert.are.same({ ids = { "stray" }, force = true }, requestBody(7))
+    end)
+
+    describe("keeps stray assets used outside Lightroom", function()
+      local stray, exportContext
+
+      before_each(function()
+        local photo = newPhoto(1)
+        stray = newPublishedPhoto(photo, "stray", true)
+        local first = newCollection(11, "First", "firstAlbum", { newPublishedPhoto(photo, "current", false) })
+        local second = newCollection(12, "Second", "secondAlbum", { stray })
+        local collection = newCollection(10, "Holiday", "album")
+        exportContext =
+          newExportContext(newService({ first, second, collection }), collection, { newRendition(photo, nil) })
+
+        albumExists()
+        lr.respondJson(200, { id = "current", isTrashed = false })
+        lr.respondJson(200, { { id = "current", success = true } })
+        lr.respondJson(200, { id = "stray", isTrashed = false })
+      end)
+
+      it("in a shared space", function()
+        lr.respondJson(200, { assets = { { assetId = "stray", spaceIds = { "family" } } } })
+
+        publish(exportContext)
+
+        assert.are.equal("POST /assets/spaces", calls()[5])
+        assert.are.equal(5, #lr.http.requests)
+        -- The copy is still pointed at the asset being used.
+        assert.are.equal("current", stray.remoteId)
+      end)
+
+      it("in an album not published from Lightroom", function()
+        noSpaces()
+        lr.respondJson(200, { { id = "secondAlbum", albumName = "Second" }, { id = "handmade", albumName = "Favourites" } })
+
+        publish(exportContext)
+
+        assert.are.equal("GET /albums?assetId=stray", calls()[6])
+        assert.are.equal(6, #lr.http.requests)
+        assert.is_truthy(lr.logged("not published from Lightroom"))
+      end)
     end)
 
     it("marks copies with a stray missing asset as edited", function()
@@ -860,6 +996,7 @@ describe("Provider", function()
       lr.respondJson(201, { id = "new", status = "created" })
       lr.respondJson(200, { id = "old" })
       lr.respond({ status = 204 })
+      noSpaces()
       lr.respondJson(200, { { id = "new", success = false, error = "duplicate" } })
       lr.respond({ status = 204 })
 
@@ -871,11 +1008,13 @@ describe("Provider", function()
         "MULTIPART /assets",
         "GET /assets/old",
         "PUT /assets/copy",
+        "POST /assets/spaces",
         "PUT /albums/album/assets",
         "DELETE /assets",
       }, calls())
       assert.are.same({ sourceId = "old", targetId = "new", sidecar = false }, requestBody(5))
-      assert.are.same({ ids = { "old" }, force = true }, requestBody(7))
+      assert.are.same({ assetIds = { "old", "new" } }, requestBody(6))
+      assert.are.same({ ids = { "old" }, force = true }, requestBody(8))
 
       assert.are.equal("new", rendition.recordedId)
       assert.is_nil(rendition.failure)
@@ -884,6 +1023,76 @@ describe("Provider", function()
       assert.are.equal("https://gallery.example.com/photos/new", otherPublished.remoteUrl)
       assert.is_true(otherPublished.edited)
       assert.are.same({ "Update Published Photos" }, lr.catalog.writeActions)
+    end)
+
+    describe("shared spaces when replacing", function()
+      local rendition, exportContext
+
+      before_each(function()
+        local collection = newCollection(10, "Holiday", "album")
+        rendition = newRendition(newPhoto(1), "old")
+        exportContext = newExportContext(newService({ collection }), collection, { rendition })
+
+        albumExists()
+        lr.respondJson(200, { id = "old", isTrashed = false })
+        lr.respondJson(201, { id = "new", status = "created" })
+        lr.respondJson(200, { id = "old" })
+        lr.respond({ status = 204 })
+      end)
+
+      it("adds the replacement to spaces it isn't already shown in", function()
+        -- The old asset is in two spaces. The replacement is already shown in
+        -- one through a linked album that the copy carried over.
+        lr.respondJson(200, {
+          assets = {
+            { assetId = "old", spaceIds = { "direct", "linked" } },
+            { assetId = "new", spaceIds = { "linked" } },
+          },
+        })
+        lr.respond({ status = 204 })
+        lr.respondJson(200, { { id = "new", success = true } })
+        lr.respond({ status = 204 })
+
+        publish(exportContext)
+
+        assert.are.same({
+          "GET /albums/album",
+          "GET /assets/old",
+          "MULTIPART /assets",
+          "GET /assets/old",
+          "PUT /assets/copy",
+          "POST /assets/spaces",
+          "POST /shared-spaces/direct/assets",
+          "PUT /albums/album/assets",
+          "DELETE /assets",
+        }, calls())
+        assert.are.same({ assetIds = { "new" } }, requestBody(7))
+        assert.are.equal("new", rendition.recordedId)
+      end)
+
+      it("carries on when the server doesn't support shared spaces", function()
+        lr.respond({ status = 404 })
+        lr.respondJson(200, { { id = "new", success = true } })
+        lr.respond({ status = 204 })
+
+        publish(exportContext)
+
+        assert.is_nil(rendition.failure)
+        assert.are.equal("new", rendition.recordedId)
+      end)
+
+      it("fails without losing anything when adding to a space fails", function()
+        lr.respondJson(200, { assets = { { assetId = "old", spaceIds = { "direct" } } } })
+        lr.respond({ status = 500 })
+        lr.respond({ status = 204 })
+
+        publish(exportContext)
+
+        -- The replacement is deleted and the old asset is left alone.
+        assert.are.equal("The gallery returned an error: 500", rendition.failure)
+        assert.are.same({ ids = { "new" }, force = true }, requestBody(8))
+        assert.are.equal(8, #lr.http.requests)
+      end)
     end)
 
     it("replaces the first asset from the other collections that exists", function()
@@ -902,6 +1111,7 @@ describe("Provider", function()
       lr.respondJson(201, { id = "new", status = "created" })
       lr.respondJson(200, { id = "old" })
       lr.respond({ status = 204 })
+      noSpaces()
       lr.respondJson(200, { { id = "new", success = true } })
       lr.respond({ status = 204 })
 
@@ -914,10 +1124,11 @@ describe("Provider", function()
         "MULTIPART /assets",
         "GET /assets/old",
         "PUT /assets/copy",
+        "POST /assets/spaces",
         "PUT /albums/album/assets",
         "DELETE /assets",
       }, calls())
-      assert.are.same({ ids = { "old" }, force = true }, requestBody(8))
+      assert.are.same({ ids = { "old" }, force = true }, requestBody(9))
       assert.are.same({ sourceId = "old", targetId = "new", sidecar = false }, requestBody(6))
       assert.are.equal("new", rendition.recordedId)
       assert.are.equal("new", missing.remoteId)
@@ -1078,6 +1289,7 @@ describe("Provider", function()
       lr.respondJson(201, { id = "new", status = "created" })
       lr.respondJson(200, { id = "old" })
       lr.respond({ status = 204 })
+      noSpaces()
       lr.respondJson(200, { { id = "new", success = true } })
       lr.respond({ status = 204 })
       -- The second photo is cancelled.
@@ -1094,13 +1306,13 @@ describe("Provider", function()
 
       -- The old asset was deleted so the other collection must reference the
       -- new one.
-      assert.are.same({ ids = { "old" }, force = true }, requestBody(7))
+      assert.are.same({ ids = { "old" }, force = true }, requestBody(8))
       assert.are.equal("new", otherPublished.remoteId)
       assert.is_true(otherPublished.edited)
       assert.are.same({ "Update Published Photos" }, lr.catalog.writeActions)
 
       -- The cancelled photo's upload was removed.
-      assert.are.same({ ids = { "second" }, force = true }, requestBody(10))
+      assert.are.same({ ids = { "second" }, force = true }, requestBody(11))
     end)
 
     it("doesn't delete old assets until the photo references the new one", function()
@@ -1118,6 +1330,7 @@ describe("Provider", function()
       lr.respondJson(201, { id = "new", status = "created" })
       lr.respondJson(200, { id = "old" })
       lr.respond({ status = 204 })
+      noSpaces()
       lr.respondJson(200, { { id = "new", success = true } })
       lr.respond({ status = 204 })
 
@@ -1131,7 +1344,7 @@ describe("Provider", function()
 
       publish(exportContext)
 
-      assert.are.same({ ids = { "old" }, force = true }, requestBody(7))
+      assert.are.same({ ids = { "old" }, force = true }, requestBody(8))
       assert.is_true(recordedBeforeDelete)
     end)
 
@@ -1163,6 +1376,7 @@ describe("Provider", function()
       lr.respondJson(201, { id = "new", status = "created" })
       lr.respondJson(200, { id = "old" })
       lr.respond({ status = 204 })
+      noSpaces()
       lr.respondJson(200, { { id = "new", success = false, error = "no_permission" } })
       lr.respond({ status = 204 })
 
@@ -1175,10 +1389,11 @@ describe("Provider", function()
         "MULTIPART /assets",
         "GET /assets/old",
         "PUT /assets/copy",
+        "POST /assets/spaces",
         "PUT /albums/album/assets",
         "DELETE /assets",
       }, calls())
-      assert.are.same({ ids = { "new" }, force = true }, requestBody(7))
+      assert.are.same({ ids = { "new" }, force = true }, requestBody(8))
       assert.are.equal("Could not add the photo to the album: no_permission", rendition.failure)
       assert.are.equal("old", otherPublished.remoteId)
       assert.are.same({}, lr.catalog.writeActions)
@@ -1194,6 +1409,62 @@ describe("Provider", function()
       lr.respondJson(200, { id = "old", isTrashed = false })
       lr.respondJson(200, { id = "phone", status = "duplicate" })
       lr.respondJson(200, { { id = "phone", success = true } })
+      noSpaces()
+      lr.respondJson(200, { { id = "album", albumName = "Holiday" } })
+      lr.respond({ status = 204 })
+
+      publish(exportContext)
+
+      -- Nothing was copied from the old asset so it is checked before deleting.
+      assert.are.same({
+        "GET /albums/album",
+        "GET /assets/old",
+        "MULTIPART /assets",
+        "PUT /albums/album/assets",
+        "POST /assets/spaces",
+        "GET /albums?assetId=old",
+        "DELETE /assets",
+      }, calls())
+      assert.are.same({ ids = { "old" }, force = true }, requestBody(7))
+      assert.are.equal("phone", rendition.recordedId)
+    end)
+
+    it("keeps an old asset not copied to a duplicate when it is used outside Lightroom", function()
+      local collection = newCollection(10, "Holiday", "album")
+      local rendition = newRendition(newPhoto(1), "old")
+      local exportContext = newExportContext(newService({ collection }), collection, { rendition })
+
+      albumExists()
+      lr.respondJson(200, { id = "old", isTrashed = false })
+      lr.respondJson(200, { id = "phone", status = "duplicate" })
+      lr.respondJson(200, { { id = "phone", success = true } })
+      noSpaces()
+      lr.respondJson(200, { { id = "album", albumName = "Holiday" }, { id = "handmade", albumName = "Favourites" } })
+
+      publish(exportContext)
+
+      assert.are.equal(6, #lr.http.requests)
+      assert.are.equal("phone", rendition.recordedId)
+    end)
+
+    it("always deletes a replaced asset even when it is used outside Lightroom", function()
+      -- Its albums and spaces were all copied to the new asset.
+      local collection = newCollection(10, "Holiday", "album")
+      local rendition = newRendition(newPhoto(1), "old")
+      local exportContext = newExportContext(newService({ collection }), collection, { rendition })
+
+      albumExists()
+      lr.respondJson(200, { id = "old", isTrashed = false })
+      lr.respondJson(201, { id = "new", status = "created" })
+      lr.respondJson(200, { id = "old" })
+      lr.respond({ status = 204 })
+      lr.respondJson(200, {
+        assets = {
+          { assetId = "old", spaceIds = { "family" } },
+          { assetId = "new", spaceIds = { "family" } },
+        },
+      })
+      lr.respondJson(200, { { id = "new", success = true } })
       lr.respond({ status = 204 })
 
       publish(exportContext)
@@ -1202,11 +1473,13 @@ describe("Provider", function()
         "GET /albums/album",
         "GET /assets/old",
         "MULTIPART /assets",
+        "GET /assets/old",
+        "PUT /assets/copy",
+        "POST /assets/spaces",
         "PUT /albums/album/assets",
         "DELETE /assets",
       }, calls())
-      assert.are.same({ ids = { "old" }, force = true }, requestBody(5))
-      assert.are.equal("phone", rendition.recordedId)
+      assert.are.same({ ids = { "old" }, force = true }, requestBody(8))
     end)
 
     it("logs the decision made for each photo", function()
@@ -1300,6 +1573,8 @@ describe("Provider", function()
 
     it("removes from the album and deletes orphaned assets", function()
       lr.respondJson(200, { { id = "sharedAsset", success = true }, { id = "orphanAsset", success = true } })
+      noSpaces()
+      lr.respondJson(200, {})
       lr.respond({ status = 204 })
 
       local deleted = {}
@@ -1307,10 +1582,86 @@ describe("Provider", function()
         table.insert(deleted, id)
       end, 10)
 
-      assert.are.same({ "DELETE /albums/album/assets", "DELETE /assets" }, calls())
+      assert.are.same({
+        "DELETE /albums/album/assets",
+        "POST /assets/spaces",
+        "GET /albums?assetId=orphanAsset",
+        "DELETE /assets",
+      }, calls())
       assert.are.same({ ids = { "sharedAsset", "orphanAsset" } }, requestBody(1))
-      assert.are.same({ ids = { "orphanAsset" }, force = false }, requestBody(2))
+      assert.are.same({ assetIds = { "orphanAsset" } }, requestBody(2))
+      assert.are.same({ ids = { "orphanAsset" }, force = false }, requestBody(4))
       assert.are.same({ "sharedAsset", "orphanAsset" }, deleted)
+    end)
+
+    describe("keeps assets in use outside Lightroom", function()
+      local function remove()
+        local deleted = {}
+        Provider.deletePhotosFromPublishedCollection(settings, { "orphanAsset" }, function(id)
+          table.insert(deleted, id)
+        end, 10)
+        return deleted
+      end
+
+      before_each(function()
+        lr.respondJson(200, { { id = "orphanAsset", success = true } })
+      end)
+
+      it("in a shared space", function()
+        lr.respondJson(200, { assets = { { assetId = "orphanAsset", spaceIds = { "family" } } } })
+
+        assert.are.same({ "orphanAsset" }, remove())
+        assert.are.same({ "DELETE /albums/album/assets", "POST /assets/spaces" }, calls())
+      end)
+
+      it("in an album not published from Lightroom", function()
+        noSpaces()
+        lr.respondJson(200, { { id = "handmade", albumName = "Favourites" } })
+
+        assert.are.same({ "orphanAsset" }, remove())
+        assert.are.same(
+          { "DELETE /albums/album/assets", "POST /assets/spaces", "GET /albums?assetId=orphanAsset" },
+          calls()
+        )
+        assert.is_truthy(lr.logged("not published from Lightroom"))
+      end)
+
+      it("in a published album whose collection doesn't contain the photo", function()
+        noSpaces()
+        lr.respondJson(200, { { id = "otherAlbum", albumName = "Other" } })
+
+        assert.are.same({ "orphanAsset" }, remove())
+        assert.are.equal(3, #lr.http.requests)
+        assert.is_truthy(lr.logged("but not in its collection"))
+      end)
+
+      it("when the checks fail", function()
+        lr.respond({ status = 500 })
+
+        assert.are.same({ "orphanAsset" }, remove())
+        assert.are.equal(2, #lr.http.requests)
+      end)
+
+      it("unless the album is the collection's own", function()
+        -- The album may still list the asset, e.g. if removing it failed.
+        noSpaces()
+        lr.respondJson(200, { { id = "album", albumName = "Holiday" } })
+        lr.respond({ status = 204 })
+
+        remove()
+
+        assert.are.same({ ids = { "orphanAsset" }, force = false }, requestBody(4))
+      end)
+
+      it("but carries on when the server doesn't support shared spaces", function()
+        lr.respond({ status = 404 })
+        lr.respondJson(200, {})
+        lr.respond({ status = 204 })
+
+        remove()
+
+        assert.are.same({ ids = { "orphanAsset" }, force = false }, requestBody(4))
+      end)
     end)
 
     it("keeps assets used elsewhere", function()
@@ -1345,16 +1696,19 @@ describe("Provider", function()
       table.insert(collection.publishedPhotos, newPublishedPhoto(copy, "orphanAsset"))
 
       lr.respondJson(200, { { id = "orphanAsset", success = true } })
+      noSpaces()
+      lr.respondJson(200, {})
       lr.respond({ status = 204 })
 
       Provider.deletePhotosFromPublishedCollection(settings, { "orphanAsset", "orphanAsset" }, function() end, 10)
 
-      assert.are.same({ "DELETE /albums/album/assets", "DELETE /assets" }, calls())
-      assert.are.same({ ids = { "orphanAsset" }, force = false }, requestBody(2))
+      assert.are.same({ ids = { "orphanAsset" }, force = false }, requestBody(4))
     end)
 
     it("ignores a missing album", function()
       lr.respond({ status = 404 })
+      noSpaces()
+      lr.respondJson(200, {})
       lr.respond({ status = 204 })
 
       local deleted = {}
@@ -1362,7 +1716,7 @@ describe("Provider", function()
         table.insert(deleted, id)
       end, 10)
 
-      assert.are.same({ "DELETE /albums/album/assets", "DELETE /assets" }, calls())
+      assert.are.equal("DELETE /assets", calls()[4])
       assert.are.same({ "orphanAsset" }, deleted)
     end)
 
@@ -1402,13 +1756,31 @@ describe("Provider", function()
     end
 
     it("deletes orphaned assets and the album", function()
+      noSpaces()
+      -- The asset is still in the album being deleted, which doesn't count.
+      lr.respondJson(200, { { id = "album", albumName = "Holiday" } })
       lr.respond({ status = 204 })
       lr.respond({ status = 204 })
 
       Provider.deletePublishedCollection(settings, info())
 
-      assert.are.same({ "DELETE /assets", "DELETE /albums/album" }, calls())
-      assert.are.same({ ids = { "orphanAsset" }, force = false }, requestBody(1))
+      assert.are.same({
+        "POST /assets/spaces",
+        "GET /albums?assetId=orphanAsset",
+        "DELETE /assets",
+        "DELETE /albums/album",
+      }, calls())
+      assert.are.same({ ids = { "orphanAsset" }, force = false }, requestBody(3))
+    end)
+
+    it("keeps assets that are also in another album", function()
+      noSpaces()
+      lr.respondJson(200, { { id = "album", albumName = "Holiday" }, { id = "handmade", albumName = "Favourites" } })
+      lr.respond({ status = 204 })
+
+      Provider.deletePublishedCollection(settings, info())
+
+      assert.are.same({ "POST /assets/spaces", "GET /albums?assetId=orphanAsset", "DELETE /albums/album" }, calls())
     end)
 
     it("only deletes the album when every asset is shared", function()
@@ -1431,21 +1803,25 @@ describe("Provider", function()
     end)
 
     it("ignores an album already deleted from the server", function()
+      noSpaces()
+      lr.respondJson(200, {})
       lr.respond({ status = 204 })
       lr.respond({ status = 404 })
 
       Provider.deletePublishedCollection(settings, info())
 
-      assert.are.equal(2, #lr.http.requests)
+      assert.are.equal(4, #lr.http.requests)
     end)
 
     it("throws on failure so Lightroom reverts", function()
+      noSpaces()
+      lr.respondJson(200, {})
       lr.respond({ status = 401 })
 
       assert.has_error(function()
         Provider.deletePublishedCollection(settings, info())
       end, "The API key was rejected by the gallery.")
-      assert.are.equal(1, #lr.http.requests)
+      assert.are.equal(3, #lr.http.requests)
     end)
   end)
 end)

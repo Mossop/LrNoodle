@@ -226,6 +226,29 @@ describe("API", function()
     end)
   end)
 
+  describe("assetExists", function()
+    it("reports existing assets, including those in the trash, without restoring them", function()
+      lr.respondJson(200, { id = "a", isTrashed = false })
+      lr.respondJson(200, { id = "b", isTrashed = true })
+
+      assert.is_true(newApi():assetExists("a"))
+      assert.is_true(newApi():assetExists("b"))
+      assert.are.equal(2, #lr.http.requests)
+    end)
+
+    it("reports missing assets", function()
+      lr.respond({ status = 404 })
+
+      assert.is_false(newApi():assetExists("a"))
+    end)
+
+    it("returns other errors", function()
+      lr.respond({ status = 500 })
+
+      assert.is_true(Utils.isError(newApi():assetExists("a")))
+    end)
+  end)
+
   describe("ensureAsset", function()
     it("reports existing assets", function()
       lr.respondJson(200, { id = "a", isTrashed = false })
@@ -269,6 +292,70 @@ describe("API", function()
 
       assert.is_true(Utils.isError(newApi():ensureAsset("a")))
     end)
+  end)
+
+  describe("shared spaces", function()
+    it("looks up the spaces showing assets", function()
+      lr.respondJson(200, { assets = { { assetId = "a", spaceIds = { "s1", "s2" } } } })
+
+      local spaces = newApi():getAssetSpaces({ "a", "b" })
+
+      assert.are.same({ a = { "s1", "s2" } }, spaces)
+      assert.are.equal("POST", request(1).method)
+      assert.are.equal("https://gallery.example.com/api/assets/spaces", request(1).url)
+      assert.are.same({ assetIds = { "a", "b" } }, body(1))
+    end)
+
+    it("looks up large numbers of assets in batches", function()
+      local ids = {}
+      for i = 1, 1500 do
+        table.insert(ids, "a" .. i)
+      end
+      lr.respondJson(200, { assets = { { assetId = "a1", spaceIds = { "s" } } } })
+      lr.respondJson(200, { assets = { { assetId = "a1500", spaceIds = { "t" } } } })
+
+      local spaces = newApi():getAssetSpaces(ids)
+
+      assert.are.same({ a1 = { "s" }, a1500 = { "t" } }, spaces)
+      assert.are.equal(1000, #body(1).assetIds)
+      assert.are.equal(500, #body(2).assetIds)
+    end)
+
+    it("reports no spaces when the server doesn't support them", function()
+      lr.respond({ status = 404 })
+
+      assert.are.same({}, newApi():getAssetSpaces({ "a" }))
+    end)
+
+    it("returns other errors", function()
+      lr.respond({ status = 500 })
+
+      assert.is_true(Utils.isError(newApi():getAssetSpaces({ "a" })))
+    end)
+
+    it("rejects unexpected responses", function()
+      lr.respond({ status = 204 })
+
+      assert.is_true(Utils.isError(newApi():getAssetSpaces({ "a" })))
+    end)
+
+    it("adds assets to a space", function()
+      lr.respond({ status = 204 })
+
+      assert.is_true(newApi():addAssetsToSpace("space", { "a" }))
+      assert.are.equal("https://gallery.example.com/api/shared-spaces/space/assets", request(1).url)
+      assert.are.same({ assetIds = { "a" } }, body(1))
+    end)
+  end)
+
+  it("finds the albums containing an asset", function()
+    lr.respondJson(200, { { id = "album", albumName = "Holiday" } })
+
+    local albums = newApi():getAlbumsForAsset("asset")
+
+    assert.are.same({ { id = "album", albumName = "Holiday" } }, albums)
+    assert.are.equal("GET", request(1).method)
+    assert.are.equal("https://gallery.example.com/api/albums?assetId=asset", request(1).url)
   end)
 
   describe("copyFromAsset", function()

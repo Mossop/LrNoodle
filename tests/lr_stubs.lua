@@ -194,6 +194,22 @@ function M.header(request, field)
   return nil
 end
 
+-- Whether any log entry contains the given text.
+---@param text string
+---@return boolean
+function M.logged(text)
+  for _, entry in ipairs(M.logs) do
+    local parts = {}
+    for i = 1, entry.args.n do
+      table.insert(parts, tostring(entry.args[i]))
+    end
+    if string.find(table.concat(parts, " "), text, 1, true) then
+      return true
+    end
+  end
+  return false
+end
+
 function M.reset()
   -- Log entries: { logger, level, args }
   M.logs = {}

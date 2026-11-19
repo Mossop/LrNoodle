@@ -25,6 +25,13 @@
 ---@field id string
 ---@field albumName string
 
+---@class AssetSpaces
+---@field assetId string
+---@field spaceIds string[]
+
+---@class AssetSpacesResponse
+---@field assets AssetSpaces[]
+
 ---@alias UploadStatus
 ---| "created"
 ---| "duplicate"

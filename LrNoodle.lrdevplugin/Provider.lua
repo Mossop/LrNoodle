@@ -250,22 +250,45 @@ end
 --- Checks assets on the server, remembering the results so each asset is only
 --- checked once.
 ---@param api API
----@return fun(id: string): boolean | Error
+---@return fun(id: string): boolean | Error ensure Checks an asset exists, restoring it from the trash.
+---@return fun(id: string): boolean | Error exists Checks an asset exists without restoring it.
 local function assetChecker(api)
+  -- Assets checked and, if necessary, restored.
   ---@type { [string]: boolean }
-  local known = {}
+  local ensured = {}
+  -- Assets checked without restoring them.
+  ---@type { [string]: boolean }
+  local found = {}
 
-  return function(id)
-    if known[id] == nil then
+  local function ensure(id)
+    if ensured[id] == nil then
       local exists = api:ensureAsset(id)
       if Utils.isError(exists) then
         return Utils.error(exists)
       end
-      known[id] = Utils.result(exists) --[[@as boolean]]
+      ensured[id] = Utils.result(exists) --[[@as boolean]]
     end
 
-    return known[id]
+    return ensured[id]
   end
+
+  local function exists(id)
+    if ensured[id] ~= nil then
+      return ensured[id]
+    end
+
+    if found[id] == nil then
+      local result = api:assetExists(id)
+      if Utils.isError(result) then
+        return Utils.error(result)
+      end
+      found[id] = Utils.result(result) --[[@as boolean]]
+    end
+
+    return found[id]
+  end
+
+  return ensure, exists
 end
 
 ---@param rendition LrExportRendition
@@ -385,11 +408,49 @@ local function writeSidecar(rendition, path, settings)
   return sidecarPath
 end
 
+--- Copying an asset doesn't copy its shared spaces. Spaces that show the asset
+--- through a linked album show the replacement already since its albums were
+--- copied, but the replacement must be added to any others directly.
+---@param api API
+---@param photoId number
+---@param oldId string
+---@param newId string
+---@return true | Error
+local function copySpaces(api, photoId, oldId, newId)
+  local spaces = api:getAssetSpaces({ oldId, newId })
+  if Utils.isError(spaces) then
+    return Utils.error(spaces)
+  end
+  spaces = Utils.result(spaces) --[[@as { [string]: string[] }]]
+
+  ---@type { [string]: boolean }
+  local alreadyShown = {}
+  for _, spaceId in ipairs(spaces[newId] or {}) do
+    alreadyShown[spaceId] = true
+  end
+
+  for _, spaceId in ipairs(spaces[oldId] or {}) do
+    if not alreadyShown[spaceId] then
+      logger:debug("Photo", photoId, "adding replacement asset", newId, "to shared space", spaceId)
+      local added = api:addAssetsToSpace(spaceId, { newId })
+      if Utils.isError(added) then
+        return Utils.error(added)
+      end
+    end
+  end
+
+  return true
+end
+
 --- Tracks an asset uploaded while publishing a photo that the photo doesn't
 --- reference yet. If publishing fails it must be deleted so it isn't left
 --- orphaned on the server.
 ---@class UploadTracker
 ---@field uploadedId string?
+
+---@class UploadedRendition
+---@field assetId string
+---@field replacedId string? An asset whose details were all copied to the new asset.
 
 ---@param api API
 ---@param rendition LrExportRendition
@@ -397,7 +458,7 @@ end
 ---@param path string
 ---@param settings MetadataSettings
 ---@param tracker UploadTracker
----@return string | Error # The asset ID.
+---@return UploadedRendition | Error
 local function uploadRendition(api, rendition, plan, path, settings, tracker)
   local photoId = rendition.photo.localIdentifier
   local fileName = LrPathUtils.leafName(path)
@@ -431,6 +492,9 @@ local function uploadRendition(api, rendition, plan, path, settings, tracker)
   local result = Utils.result(uploaded) --[[@as UploadResult]]
   logger:debug("Photo", photoId, "uploaded as asset", result.id, result.status)
 
+  ---@type UploadedRendition
+  local uploadedRendition = { assetId = result.id }
+
   if plan.assetId and plan.assetId ~= result.id then
     if result.status == "duplicate" then
       -- The server already has an identical file, possibly one we don't own,
@@ -442,17 +506,26 @@ local function uploadRendition(api, rendition, plan, path, settings, tracker)
         logger:debug("Photo", photoId, "failed to replace asset", plan.assetId, Utils.errorString(copied))
         return Utils.error(copied)
       end
+
+      local spaces = copySpaces(api, photoId, plan.assetId, result.id)
+      if Utils.isError(spaces) then
+        logger:debug("Photo", photoId, "failed to copy shared spaces", plan.assetId, Utils.errorString(spaces))
+        return Utils.error(spaces)
+      end
+
       logger:debug("Photo", photoId, "replaced asset", plan.assetId, "with", result.id)
+      uploadedRendition.replacedId = plan.assetId
     end
   end
 
-  return result.id
+  return uploadedRendition
 end
 
 --- The outcome of publishing a photo. Cleaning up after it must wait until
 --- the photo references the new asset.
 ---@class PublishResult
 ---@field assetId string
+---@field replacedId string? An asset whose details were all copied to the new asset.
 ---@field staleIds string[] Other assets previously used for the photo.
 ---@field changed LrPublishedPhoto[] Copies in other collections that reference a different asset.
 
@@ -467,6 +540,8 @@ end
 local function publishRendition(api, albumId, rendition, plan, path, settings, tracker)
   local photoId = rendition.photo.localIdentifier
   local assetId = plan.assetId
+  ---@type string?
+  local replacedId
 
   if plan.needsUpload then
     if not path then
@@ -477,7 +552,9 @@ local function publishRendition(api, albumId, rendition, plan, path, settings, t
     if Utils.isError(uploaded) then
       return Utils.error(uploaded)
     end
-    assetId = Utils.result(uploaded) --[[@as string]]
+    local result = Utils.result(uploaded) --[[@as UploadedRendition]]
+    assetId = result.assetId
+    replacedId = result.replacedId
   end
 
   if not assetId then
@@ -508,18 +585,18 @@ local function publishRendition(api, albumId, rendition, plan, path, settings, t
 
   ---@param id string
   local function seen(id)
-    if id ~= assetId then
+    if id ~= assetId and id ~= replacedId then
       stale[id] = true
     end
   end
 
-  -- A replaced asset is no longer needed.
+  -- An asset the photo previously used that wasn't replaced, e.g. because the
+  -- upload matched an existing asset.
   if plan.assetId then
     seen(plan.assetId)
   end
 
-  -- Nor is this collection's previous asset if the photo now uses a different
-  -- one.
+  -- This collection's previous asset if the photo now uses a different one.
   if rendition.publishedPhotoId then
     seen(tostring(rendition.publishedPhotoId))
   end
@@ -543,9 +620,112 @@ local function publishRendition(api, albumId, rendition, plan, path, settings, t
 
   return {
     assetId = assetId,
+    replacedId = replacedId,
     staleIds = staleIds,
     changed = changed,
   }
+end
+
+--- The published photos in all of the service's collections, keyed by the
+--- asset they reference.
+---@param publishService LrPublishService
+---@return { [string]: LrPublishedPhoto[] }
+local function publishedPhotosByAsset(publishService)
+  ---@type { [string]: LrPublishedPhoto[] }
+  local byAsset = {}
+  for _, collection in ipairs(Utils.listCollections(publishService)) do
+    for _, published in ipairs(collection:getPublishedPhotos()) do
+      local remoteId = published:getRemoteId()
+      if remoteId then
+        local id = tostring(remoteId)
+        byAsset[id] = byAsset[id] or {}
+        table.insert(byAsset[id], published)
+      end
+    end
+  end
+  return byAsset
+end
+
+--- The albums published from the service's collections, mapped to the
+--- collection's name.
+---@param publishService LrPublishService
+---@return { [string]: string }
+local function publishedAlbums(publishService)
+  ---@type { [string]: string }
+  local albums = {}
+  for _, collection in ipairs(Utils.listCollections(publishService)) do
+    local albumId = collection:getRemoteId()
+    if albumId then
+      albums[tostring(albumId)] = collection:getName()
+    end
+  end
+  return albums
+end
+
+--- Filters out assets that are in use somewhere Lightroom doesn't control, so
+--- they are never deleted: in a shared space, or in an album other than those
+--- allowed. If the checks fail the assets are kept.
+---@param api API
+---@param assetIds string[]
+---@param allowedAlbums { [string]: any } Albums an asset may be in and still be deleted.
+---@param collectionForAlbum { [string]: string } The published albums, for explaining decisions in the log.
+---@return string[] # The assets that can be deleted.
+local function withoutAssetsUsedElsewhere(api, assetIds, allowedAlbums, collectionForAlbum)
+  if #assetIds == 0 then
+    return assetIds
+  end
+
+  local spaces = api:getAssetSpaces(assetIds)
+  if Utils.isError(spaces) then
+    logger:warn("Keeping assets since checking shared spaces failed", Utils.errorString(spaces))
+    return {}
+  end
+  spaces = Utils.result(spaces) --[[@as { [string]: string[] }]]
+
+  ---@type string[]
+  local deletable = {}
+  for _, id in ipairs(assetIds) do
+    local keep = false
+
+    if spaces[id] and #spaces[id] > 0 then
+      logger:debug("Keeping asset", id, "which is in shared spaces", table.concat(spaces[id], ", "))
+      keep = true
+    else
+      local albums = api:getAlbumsForAsset(id)
+      if Utils.isError(albums) then
+        logger:warn("Keeping asset", id, "since checking its albums failed", Utils.errorString(albums))
+        keep = true
+      else
+        for _, album in
+          ipairs(Utils.result(albums) --[[@as Album[] ]])
+        do
+          if not allowedAlbums[album.id] then
+            local collectionName = collectionForAlbum[album.id]
+            if collectionName then
+              logger:debug(
+                "Keeping asset",
+                id,
+                "which is in album",
+                album.albumName,
+                "but not in its collection",
+                collectionName
+              )
+            else
+              logger:debug("Keeping asset", id, "which is in album", album.albumName, "not published from Lightroom")
+            end
+            keep = true
+            break
+          end
+        end
+      end
+    end
+
+    if not keep then
+      table.insert(deletable, id)
+    end
+  end
+
+  return deletable
 end
 
 --- Deletes an asset uploaded for a photo that failed to publish.
@@ -573,20 +753,36 @@ end
 ---@param result PublishResult
 ---@param assetExists fun(id: string): boolean | Error
 ---@param updates PublishedPhotoUpdate[]
-local function finishPublish(api, photoId, result, assetExists, updates)
+---@param albums { [string]: string } The albums published from the service's collections.
+---@param photosByAsset { [string]: LrPublishedPhoto[] } The service's published photos keyed by asset.
+local function finishPublish(api, photoId, result, assetExists, updates, albums, photosByAsset)
   local assetId = result.assetId
 
   ---@type string[]
-  local toDelete = {}
+  local stale = {}
   for _, id in ipairs(result.staleIds) do
     local exists = assetExists(id)
     if Utils.isError(exists) then
       logger:warn("Photo", photoId, "failed to check stale asset", id, Utils.errorString(exists))
     elseif exists then
-      table.insert(toDelete, id)
+      table.insert(stale, id)
     else
       logger:debug("Photo", photoId, "stale asset", id, "is already gone from the server")
     end
+  end
+
+  -- Nothing was copied from these so keep any that are used somewhere
+  -- Lightroom doesn't control.
+  local staleToDelete = withoutAssetsUsedElsewhere(api, stale, albums, albums)
+
+  ---@type string[]
+  local toDelete = {}
+  -- Everything was copied from a replaced asset so it is always deleted.
+  if result.replacedId then
+    table.insert(toDelete, result.replacedId)
+  end
+  for _, id in ipairs(staleToDelete) do
+    table.insert(toDelete, id)
   end
 
   if #toDelete > 0 then
@@ -594,6 +790,24 @@ local function finishPublish(api, photoId, result, assetExists, updates)
     local deleted = api:deleteAssets(toDelete, true)
     if Utils.isError(deleted) then
       logger:warn("Photo", photoId, "failed to delete stale assets", Utils.errorString(deleted))
+    else
+      -- Other photos may still reference a deleted asset, e.g. a virtual copy
+      -- that matched it as a duplicate, so they must be republished. This
+      -- photo's own copies are handled below.
+      for _, id in ipairs(staleToDelete) do
+        for _, published in ipairs(photosByAsset[id] or {}) do
+          if published:getPhoto().localIdentifier ~= photoId then
+            logger:debug(
+              "Photo",
+              published:getPhoto().localIdentifier,
+              "used deleted asset",
+              id,
+              "so marking it edited"
+            )
+            table.insert(updates, { published = published, edited = true })
+          end
+        end
+      end
     end
   end
 
@@ -685,15 +899,24 @@ local function publishPhotos(exportContext, scope, updates)
   local albumId = Utils.result(album) --[[@as string]]
 
   local elsewhere = publishedPhotosElsewhere(exportContext.publishService, exportContext.publishedCollection)
+
+  -- The collection's album may have just been created so isn't recorded yet.
+  local albums = publishedAlbums(exportContext.publishService)
+  albums[albumId] = exportContext.publishedCollection:getName()
+
+  local photosByAsset = publishedPhotosByAsset(exportContext.publishService)
+
   scope:advance()
 
   ---@type { [number]: RenditionPlan }
   local plans = {}
-  local assetExists = assetChecker(api)
+  -- Assets that may be used are restored from the trash but assets being
+  -- cleaned up are not, since they will be permanently deleted.
+  local ensureAsset, assetExists = assetChecker(api)
 
   scope:childScope(photoCount, function(renditionScope)
     for _, rendition in renditionScope:iter(exportSession:renditions()) do
-      local plan = planRendition(rendition, elsewhere[rendition.photo.localIdentifier] or {}, assetExists)
+      local plan = planRendition(rendition, elsewhere[rendition.photo.localIdentifier] or {}, ensureAsset)
       plans[rendition.photo.localIdentifier] = plan
 
       if plan.error or not plan.needsUpload then
@@ -723,7 +946,15 @@ local function publishPhotos(exportContext, scope, updates)
         if Utils.isError(result) then
           rendition:uploadFailed(Utils.errorString(result))
         else
-          finishPublish(api, rendition.photo.localIdentifier, Utils.result(result), assetExists, updates)
+          finishPublish(
+            api,
+            rendition.photo.localIdentifier,
+            Utils.result(result),
+            assetExists,
+            updates,
+            albums,
+            photosByAsset
+          )
         end
       end
     end
@@ -830,6 +1061,17 @@ local function deleteOrphanedAssets(api, publishService, collection, assetIds)
       end
     end
   end
+
+  -- No published photo uses these assets, so any album other than the
+  -- collection's own is either not published from Lightroom or its collection
+  -- doesn't contain the photo.
+  ---@type { [string]: boolean }
+  local allowed = {}
+  local ownAlbum = collection:getRemoteId()
+  if ownAlbum then
+    allowed[tostring(ownAlbum)] = true
+  end
+  orphans = withoutAssetsUsedElsewhere(api, orphans, allowed, publishedAlbums(publishService))
 
   if #orphans == 0 then
     return true

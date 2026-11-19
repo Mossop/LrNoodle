@@ -65,18 +65,35 @@ LuaLS warnings about busted globals in `tests/` are expected and can be ignored.
   1. An unedited copy elsewhere: reuse its asset without uploading.
   2. This collection's ID, then the other copies' IDs: replace the first that exists.
   3. Otherwise upload a new asset.
-- A replacement uploads a new asset, then copies the old asset's details to it with `copyFromAsset`.
+- A replacement uploads a new asset, then copies the old asset's details to it with `copyFromAsset`. The
+  copy doesn't include shared spaces, so `copySpaces` adds the new asset to any space that showed the old
+  asset but doesn't show the new one (spaces linked to albums already show it, since albums are copied).
 - `publishAndRecord` protects everything from the upload until `recordPublishedPhotoId`. If anything fails,
   including exceptions and cancellation, an asset created by the upload is permanently deleted.
-- Only after the new ID is recorded does `finishPublish` permanently delete every other asset previously
-  used for the photo (the replaced asset, this collection's old ID and the other copies' IDs). It also
-  queues updates pointing the other copies at the new asset and marking them edited.
+- Only after the new ID is recorded does `finishPublish` clean up the assets previously used for the photo.
+  It also queues updates pointing the other copies at the new asset and marking them edited.
+  - The replaced asset (only set when the upload created an asset and its details were copied) is always
+    permanently deleted.
+  - Every other previously seen ID (this collection's old ID, the other copies' IDs, or the previous asset
+    when the upload matched a duplicate) is permanently deleted unless `withoutAssetsUsedElsewhere` finds
+    it in a shared space or an album that isn't published from one of the service's collections.
+  - When one of these other IDs is deleted, every published photo in the service still referencing it
+    (e.g. an identical virtual copy matched as a duplicate) is marked edited so it is republished. The
+    photo being published is skipped.
+  - The replaced asset could also be another photo's asset; that case is accepted and not handled.
 - Catalog updates are batched and applied in one write transaction when publishing ends, even if it is
   interrupted.
 - A deleted album is recreated empty, then the collection's unedited assets are added in bulk. Photos
   whose assets are rejected are marked edited.
 - Removing photos or deleting a collection moves assets to the trash only if no other photo in any
-  collection of the service still uses them.
+  collection of the service still uses them, and `withoutAssetsUsedElsewhere` finds them in no shared space
+  and no album other than the collection's own. If those checks fail the assets are kept.
+
+## Immich compatibility
+
+The plugin must keep working with plain Immich, though it has only been tested with Noodle Gallery. Noodle
+only endpoints (currently just shared spaces: `POST /assets/spaces`, `POST /shared-spaces/{id}/assets`)
+must degrade gracefully: Immich returns 404 for them, which `getAssetSpaces` treats as no spaces.
 
 ## User decisions to respect
 

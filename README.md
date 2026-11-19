@@ -1,6 +1,7 @@
 # LrNoodle
 
-A Lightroom Classic plugin supporting publishing photos to [Noodle Gallery](https://opennoodle.de/).
+A Lightroom Classic plugin supporting publishing photos to [Noodle Gallery](https://opennoodle.de/) and
+[Immich](https://immich.app/).
 
 Each publish collection becomes an album in the gallery. A photo is stored in the gallery once, no matter
 how many collections it is published in, and is added to the album for each of them.
@@ -8,8 +9,14 @@ how many collections it is published in, and is added to the album for each of t
 ## Requirements
 
 - Lightroom Classic 16 or later.
-- A Noodle Gallery server reachable over https.
+- A Noodle Gallery or Immich server reachable over https.
 - An API key for your gallery account.
+
+## Compatibility
+
+The plugin works with both Noodle Gallery and Immich. It only uses features Immich also has, apart from
+Noodle Gallery's shared spaces, which it handles where present and skips on Immich. It has only been
+tested with Noodle Gallery so far. If you use it with Immich, please report any problems.
 
 ## Installation
 
@@ -39,9 +46,9 @@ you change the gallery address you will need to enter the key again.
   album it is published to. Adding an already published photo to another collection just adds it to that
   album without uploading it again.
 - **Changed photos**: the gallery can't replace an asset's file, so a changed photo is uploaded as a new
-  asset. Everything is copied over from the old asset (albums, favourites, shared links and so on) and the
-  old asset is permanently deleted. Copies of the photo in other collections are marked to be republished
-  so they pick up the new asset.
+  asset. Everything is copied over from the old asset (albums, favourites, shared links and so on, and on
+  Noodle Gallery its shared spaces) and the old asset is permanently deleted. Copies of the photo in other
+  collections are marked to be republished so they pick up the new asset.
 - **Photos deleted in the gallery**: if a photo or album has been deleted in the gallery it is uploaded or
   created again the next time you publish. Assets in the gallery's trash are restored.
 - **Duplicates**: if the gallery already has an identical file, for example one uploaded from your phone,
@@ -51,10 +58,17 @@ you change the gallery address you will need to enter the key again.
 
 ## Removing photos and collections
 
-- Removing a photo from a collection removes it from that collection's album. If no other collection
-  still uses the photo it is moved to the gallery's trash.
-- Deleting a collection deletes its album. Photos that aren't in any other collection are moved to the
-  gallery's trash.
+- Removing a photo from a collection removes it from that collection's album.
+- Deleting a collection deletes its album.
+
+A photo is only moved to the gallery's trash if nothing else is using it. It is kept if it is:
+
+- still in another published collection,
+- in an album that isn't published from Lightroom, or in a published album you added it to in the gallery
+  without it being in the matching collection,
+- in a shared space (Noodle Gallery only).
+
+If the plugin can't check, it keeps the photo rather than risk trashing something still in use.
 
 ## Videos
 
