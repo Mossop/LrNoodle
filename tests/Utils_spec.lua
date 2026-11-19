@@ -4,13 +4,8 @@ local Logging = require("Logging")
 
 local logger = Logging("Test")
 
-local function collection(name, isDefault)
-  return {
-    name = name,
-    getCollectionInfoSummary = function()
-      return { isDefaultCollection = isDefault }
-    end,
-  }
+local function collection(name)
+  return { name = name }
 end
 
 local function collectionSet(sets, collections)
@@ -188,14 +183,18 @@ describe("Utils", function()
       assert.are.same({}, lr.catalog.writeActions)
     end)
 
-    it("logs failures when it already has write access", function()
+    it("logs and raises failures when it already has write access", function()
       lr.catalog.hasWriteAccess = true
 
-      Utils.runWithWriteAccess(logger, "action", function()
-        error("bad", 0)
-      end)
+      assert.has_error(function()
+        Utils.runWithWriteAccess(logger, "action", function()
+          error("bad", 0)
+        end)
+      end, "bad")
 
-      assert.are.equal(1, #lr.logsAt("error"))
+      local errors = lr.logsAt("error")
+      assert.are.equal(1, #errors)
+      assert.are.same({ n = 3, "Test", "action", "bad" }, errors[1].args)
     end)
   end)
 
@@ -226,39 +225,15 @@ describe("Utils", function()
     before_each(function()
       service = collectionSet({
         collectionSet({ collectionSet({}, { collection("deep") }) }, { collection("nested") }),
-      }, { collection("default", true), collection("top") })
-    end)
-
-    it("finds the default collection", function()
-      assert.are.equal("default", Utils.getDefaultCollection(service).name)
-    end)
-
-    it("errors when there is no default collection", function()
-      assert.has_error(function()
-        Utils.getDefaultCollection(collectionSet({}, { collection("top") }))
-      end, "Default collection is missing")
+      }, { collection("default"), collection("top") })
     end)
 
     it("lists all collections depth first", function()
       assert.are.same({ "deep", "nested", "default", "top" }, names(Utils.listCollections(service)))
     end)
-
-    it("lists non-default collections", function()
-      assert.are.same({ "deep", "nested", "top" }, names(Utils.listNonDefaultCollections(service)))
-    end)
   end)
 
   describe("tables", function()
-    it("shallow clones", function()
-      local inner = {}
-      local original = { a = 1, b = inner }
-      local clone = Utils.shallowClone(original)
-
-      assert.are_not.equal(original, clone)
-      assert.are.same(original, clone)
-      assert.are.equal(inner, clone.b)
-    end)
-
     it("counts every key", function()
       assert.are.equal(0, Utils.length({}))
       assert.are.equal(3, Utils.length({ 1, 2, 3 }))

@@ -2,6 +2,7 @@
 lua = "5.1.5"
 stylua = "2.6.0"
 lua-language-server = "3.19.2"
+"cargo:lrv" = "latest"
 
 [tasks.setup]
 run = ["luarocks install luacheck", "luarocks install busted"]

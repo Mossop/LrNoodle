@@ -1,7 +1,17 @@
 local LrLogger = import("LrLogger")
+local LrPrefs = import("LrPrefs")
 
 local lrLogger = LrLogger("LrNoodle")
 lrLogger:enable("logfile")
+
+local prefs = LrPrefs.prefsForPlugin() --[[@as PluginPrefs]]
+
+--- Whether debugging output (trace, debug and info) should be logged. Warnings
+--- and errors are always logged.
+---@return boolean
+local function debugEnabled()
+  return prefs.debugLogging == true
+end
 
 ---@class Logger
 ---@field name string
@@ -9,27 +19,33 @@ local Logger = {}
 
 ---@param ... any
 function Logger:trace(...)
-  lrLogger:trace(self.name, unpack({ ... }))
+  if debugEnabled() then
+    lrLogger:trace(self.name, ...)
+  end
 end
 
 ---@param ... any
 function Logger:debug(...)
-  lrLogger:debug(self.name, unpack({ ... }))
+  if debugEnabled() then
+    lrLogger:debug(self.name, ...)
+  end
 end
 
 ---@param ... any
 function Logger:info(...)
-  lrLogger:info(self.name, unpack({ ... }))
+  if debugEnabled() then
+    lrLogger:info(self.name, ...)
+  end
 end
 
 ---@param ... any
 function Logger:warn(...)
-  lrLogger:warn(self.name, unpack({ ... }))
+  lrLogger:warn(self.name, ...)
 end
 
 ---@param ... any
 function Logger:error(...)
-  lrLogger:error(self.name, unpack({ ... }))
+  lrLogger:error(self.name, ...)
 end
 
 ---@param name string

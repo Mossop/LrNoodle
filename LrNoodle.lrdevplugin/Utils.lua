@@ -1,10 +1,23 @@
 local LrApplication = import("LrApplication")
+local LrDate = import("LrDate")
 local LrFunctionContext = import("LrFunctionContext")
 local LrErrors = import("LrErrors")
 
 local json = require("json")
 
-local ERROR_CODES = {}
+local ERROR_CODES = {
+  invalidUrl = "The gallery address is not valid (^1).",
+  unknownHost = "Could not find the gallery server (^1).",
+  connection = "Could not connect to the gallery server (^1).",
+  badApiKey = "The API key was rejected by the gallery.",
+  notFound = "The item could not be found on the gallery.",
+  serverError = "The gallery returned an error: ^1",
+  albumAdd = "Could not add the photo to the album: ^1",
+  renderFailed = "The photo could not be rendered.",
+  sidecarWrite = "Could not write the metadata file: ^1",
+  invalidJson = "The gallery returned an invalid response.",
+  exception = "An unexpected error occurred: ^1",
+}
 
 ---@class Error
 ---@field code string
@@ -73,7 +86,7 @@ function Utils.errorString(val)
     message = ERROR_CODES[error.code]
   end
 
-  return LOC("$$$/LrPixelBin/error/" .. error.code .. "=" .. message, unpack(val.args))
+  return LOC("$$$/LrNoodle/error/" .. error.code .. "=" .. message, unpack(val.args))
 end
 
 ---@generic T
@@ -107,7 +120,11 @@ function Utils.runWithWriteAccess(logger, action, func)
   local catalog = LrApplication.activeCatalog()
 
   if catalog.hasWriteAccess then
-    Utils.safeCall(logger, action, func)
+    LrFunctionContext.callWithContext(action, function(context)
+      Utils.logFailures(context, logger, action)
+
+      func(context)
+    end)
   else
     catalog:withWriteAccessDo(action, function(context)
       Utils.logFailures(context, logger, action)
@@ -182,19 +199,6 @@ function Utils.jsonDecode(logger, str)
   return result
 end
 
---- @param publishService LrPublishService
---- @return LrPublishedCollection
-function Utils.getDefaultCollection(publishService)
-  for _, collection in ipairs(publishService:getChildCollections()) do
-    local collectionInfo = collection:getCollectionInfoSummary()
-    if collectionInfo.isDefaultCollection then
-      return collection
-    end
-  end
-
-  error("Default collection is missing")
-end
-
 ---@param publishService LrPublishService
 ---@return LrPublishedCollection[]
 function Utils.listCollections(publishService)
@@ -216,39 +220,11 @@ function Utils.listCollections(publishService)
   return collections
 end
 
----@param publishService LrPublishService
----@return LrPublishedCollection[]
-function Utils.listNonDefaultCollections(publishService)
-  local collections = {}
-
-  ---@param outer LrPublishService | LrPublishedCollectionSet
-  local function list(outer)
-    for _, collectionSet in ipairs(outer:getChildCollectionSets()) do
-      list(collectionSet)
-    end
-
-    for _, collection in ipairs(outer:getChildCollections()) do
-      local collectionInfo = collection:getCollectionInfoSummary()
-      if not collectionInfo.isDefaultCollection then
-        table.insert(collections, collection)
-      end
-    end
-  end
-
-  list(publishService)
-
-  return collections
-end
-
----@generic T
----@param tbl T
----@return T
-function Utils.shallowClone(tbl)
-  local result = {}
-  for k, v in pairs(tbl) do
-    result[k] = v
-  end
-  return result
+--- Formats a Lightroom timestamp as an ISO 8601 UTC date and time.
+---@param time number Seconds since midnight UTC on January 1, 2001.
+---@return string
+function Utils.formatTimestamp(time)
+  return os.date("!%Y-%m-%dT%H:%M:%SZ", math.floor(LrDate.timeToPosixDate(time))) --[[@as string]]
 end
 
 ---@param tbl table
