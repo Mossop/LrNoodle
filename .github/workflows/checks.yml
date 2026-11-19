@@ -21,6 +21,13 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y lua-check
       - run: luacheck LrNoodle.lrdevplugin
 
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y lua5.1 lua-busted
+      - run: busted
+
   typecheck:
     runs-on: ubuntu-latest
     steps:

@@ -4,10 +4,11 @@ stylua = "2.6.0"
 lua-language-server = "3.19.2"
 
 [tasks.setup]
-run = ["luarocks install luacheck"]
+run = ["luarocks install luacheck", "luarocks install busted"]
 
 [tasks.test]
-run = "python -m pytest tests"
+description = "Run the tests with busted"
+run = "busted"
 
 [tasks.luacheck]
 description = "Lint the plugin with luacheck"

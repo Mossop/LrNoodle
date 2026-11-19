@@ -1,0 +1,6 @@
+return {
+  default = {
+    ROOT = { "tests" },
+    lpath = "LrNoodle.lrdevplugin/?.lua;tests/?.lua",
+  },
+}

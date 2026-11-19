@@ -48,7 +48,7 @@ function Utils.isError(val)
   end
 
   local meta = getmetatable(val)
-  return meta and meta["__index"] == Error
+  return meta ~= nil and meta["__index"] == Error
 end
 
 ---@generic T
