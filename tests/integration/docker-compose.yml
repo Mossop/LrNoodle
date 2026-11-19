@@ -1,0 +1,44 @@
+# A throwaway Noodle Gallery server for the integration tests. Everything is
+# stored in tmpfs so each run starts with an empty server. Machine learning is
+# left out since the plugin doesn't use it.
+
+name: lrnoodle-integration
+
+services:
+  server:
+    image: ghcr.io/open-noodle/gallery-server:${NOODLE_VERSION:-v5.11.0}
+    environment:
+      DB_HOSTNAME: database
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      DB_DATABASE_NAME: immich
+      REDIS_HOSTNAME: redis
+      IMMICH_MACHINE_LEARNING_ENABLED: "false"
+    tmpfs:
+      - /data
+    ports:
+      - "${NOODLE_PORT:-2284}:2283"
+    depends_on:
+      redis:
+        condition: service_healthy
+      database:
+        condition: service_healthy
+
+  redis:
+    image: docker.io/valkey/valkey:9@sha256:418652cfb58ef879d4978c33553735d7147016032d5aefaa14c828e611eb9dfd
+    healthcheck:
+      test: redis-cli ping | grep -q PONG || exit 1
+      interval: 2s
+
+  database:
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_DB: immich
+    tmpfs:
+      - /var/lib/postgresql/data
+    shm_size: 128mb
+    healthcheck:
+      test: pg_isready -U postgres -d immich
+      interval: 2s

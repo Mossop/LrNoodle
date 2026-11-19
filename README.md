@@ -25,7 +25,7 @@ tested with Noodle Gallery so far. If you use it with Immich, please report any 
 
 ## Setting up
 
-1. In the gallery, open your account settings and create an API key.
+1. In the gallery, open your account settings and create an API key with the permissions listed below.
 2. In Lightroom's Publish Services panel click the + next to Noodle Gallery (or Set Up) to open the Publish
    Manager.
 3. Enter your gallery's address (it must start with `https://`) and the API key. The plugin checks the
@@ -37,6 +37,18 @@ can change these like any other export setting.
 
 The API key is stored in Lightroom's encrypted password storage, not in the publish settings or presets. If
 you change the gallery address you will need to enter the key again.
+
+### API key permissions
+
+The API key can be given every permission, or limited to just the ones the plugin needs:
+
+- every `asset` permission (`asset.read`, `asset.upload`, `asset.update`, `asset.delete`, `asset.copy` and
+  the rest),
+- every `album` permission (`album.read`, `album.create`, `album.update`, `album.delete` and the rest),
+- `albumAsset.create` and `albumAsset.delete`,
+- `user.read`,
+- `sharedSpaceAsset.create` (Noodle Gallery only), so a changed photo's new asset can be added to the shared
+  spaces the old one was in.
 
 ## Publishing
 
@@ -102,6 +114,8 @@ available:
 
 - `mise r setup` installs luacheck and busted.
 - `mise r test` runs the tests.
+- `mise r integration` runs the integration tests against a Noodle Gallery server it starts in Docker. It
+  needs Docker and curl.
 - `mise r stylua`, `mise r luacheck` and `mise r typecheck` format, lint and type check the plugin.
 - `mise r package` runs the checks and builds `LrNoodle.zip` for distribution.
 

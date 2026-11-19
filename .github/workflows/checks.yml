@@ -30,6 +30,13 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y lua5.1 lua-busted
       - run: busted
 
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y lua5.1 lua-busted
+      - run: MISE_CONFIG_ROOT="$GITHUB_WORKSPACE" ./mise-tasks/integration
+
   typecheck:
     runs-on: ubuntu-latest
     steps:

@@ -3,4 +3,10 @@ return {
     ROOT = { "tests" },
     lpath = "LrNoodle.lrdevplugin/?.lua;tests/?.lua",
   },
+  -- Needs a running server, see `mise r integration`.
+  integration = {
+    ROOT = { "tests/integration" },
+    pattern = "_integration",
+    lpath = "LrNoodle.lrdevplugin/?.lua;tests/?.lua;tests/integration/?.lua",
+  },
 }
