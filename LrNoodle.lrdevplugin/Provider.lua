@@ -37,6 +37,7 @@ Provider.exportPresetFields = {
   { key = "replacePeopleTags", default = false },
   { key = "peopleReplacementTag", default = "" },
   { key = "replacePeopleInVideos", default = false },
+  { key = "serviceId", default = "" },
 }
 
 Provider.publish_fallbackNameBinding = "url"
@@ -477,7 +478,13 @@ local function uploadRendition(api, rendition, plan, path, settings, tracker)
   end
   local sidecarPath = Utils.result(sidecar) --[[@as string?]]
 
-  local uploaded = api:uploadAsset(path, fileName, dates, sidecarPath)
+  ---@type UploadSource
+  local source = {
+    publishService = (settings --[[@as PublishSettings]]).serviceId --[[@as string]],
+    photoUuid = rendition.photo:getRawMetadata("uuid") --[[@as string]],
+  }
+
+  local uploaded = api:uploadAsset(path, fileName, dates, source, sidecarPath)
 
   if Utils.isSuccess(uploaded) and Utils.result(uploaded).status == "created" then
     -- A duplicate may be an asset we don't own so is never tracked for deletion.
@@ -897,7 +904,16 @@ local function publishPhotos(exportContext, scope, updates)
   local exportSession = exportContext.exportSession
   local photoCount = exportSession:countRenditions()
 
-  local api = API.new(exportContext.propertyTable --[[@as PublishSettings]])
+  local settings = exportContext.propertyTable --[[@as PublishSettings]]
+
+  -- Lightroom only saves the settings from the settings dialog, so a service
+  -- created before the ID existed must have its settings saved first.
+  if (settings.serviceId or "") == "" then
+    logger:warn("The publish service has no ID")
+    error(Utils.errorString(Utils.throw("noServiceId")))
+  end
+
+  local api = API.new(settings)
 
   local album = ensureAlbum(api, exportContext, updates)
   if Utils.isError(album) then
@@ -1242,6 +1258,12 @@ function Provider.startDialog(propertyTable)
         break
       end
     end
+  end
+
+  -- Identifies the assets this service uploads. It is only kept if the
+  -- settings are saved.
+  if (propertyTable.serviceId or "") == "" then
+    propertyTable.serviceId = Utils.generateUuid()
   end
 
   if propertyTable.url and propertyTable.url ~= "" then

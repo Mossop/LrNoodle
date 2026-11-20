@@ -13,8 +13,7 @@ Immich compatible; the spec is at `https://gallery.clantownsend.com/api/spec.jso
     and tag-only sidecars for photos with people.
   - `PluginInfo.lua`: the Plug-in Manager section (the debug logging checkbox).
   - `Types.lua`: `---@meta` type definitions for server responses and settings.
-  - `Utils.lua`, `Logging.lua`, `ProgressScope.lua`, `json.lua`: shared helpers provided by the user. Ask
-    before making broad changes to them.
+  - `Utils.lua`, `Logging.lua`, `ProgressScope.lua`, `json.lua`: shared helpers.
 - `tests/`: busted specs, one per module. `lr_stubs.lua` stands in for the Lightroom SDK.
 
 ## Commands

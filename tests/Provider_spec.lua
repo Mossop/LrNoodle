@@ -3,7 +3,7 @@ local catalog = require("lr_catalog")
 local json = require("json")
 local Provider = require("Provider")
 
-local settings = { url = "https://gallery.example.com", apiKey = "secret" }
+local settings = { url = "https://gallery.example.com", apiKey = "secret", serviceId = "service-uuid" }
 
 local function newPropertyTable(values)
   local properties = { observers = {} }
@@ -260,6 +260,26 @@ describe("Provider", function()
       assert.is_nil(properties.LR_videoPreset)
     end)
 
+    it("creates a service ID when there isn't one", function()
+      local properties = newPropertyTable({ url = "https://gallery.example.com", serviceId = "" })
+      lr.respondJson(200, { id = "user" })
+      Provider.startDialog(properties)
+
+      assert.matches("^%x+%-%x+%-4%x+%-[89ab]%x+%-%x+$", properties.serviceId)
+    end)
+
+    it("keeps an existing service ID", function()
+      local properties = newPropertyTable({
+        url = "https://gallery.example.com",
+        LR_editingExistingPublishConnection = true,
+        serviceId = "existing",
+      })
+      lr.respondJson(200, { id = "user" })
+      Provider.startDialog(properties)
+
+      assert.are.equal("existing", properties.serviceId)
+    end)
+
     it("doesn't keep the api key in the settings", function()
       for _, field in ipairs(Provider.exportPresetFields) do
         assert.are_not.equal("apiKey", field.key)
@@ -321,6 +341,10 @@ describe("Provider", function()
       assert.are.equal("2001-01-01T00:00:00Z", chunk(2, "fileCreatedAt").value)
       assert.are.equal("2001-01-02T01:00:00Z", chunk(2, "fileModifiedAt").value)
       assert.is_nil(chunk(2, "sidecarData"))
+      assert.are.same(
+        { { key = "LrNoodle", value = { publishService = "service-uuid", photoUuid = "uuid-1" } } },
+        json.decode(chunk(2, "metadata").value)
+      )
       assert.are.same({ ids = { "asset" } }, requestBody(3))
 
       assert.are.equal("album", exportContext.exportSession.remoteCollectionId)
@@ -330,6 +354,27 @@ describe("Provider", function()
       assert.are.equal("asset", rendition.recordedId)
       assert.are.equal("https://gallery.example.com/photos/asset", rendition.recordedUrl)
       assert.is_nil(rendition.failure)
+    end)
+
+    it("refuses to publish until the service has an ID", function()
+      local photo = newPhoto(1)
+      local collection = newCollection(10, "Holiday", "album")
+      local rendition = newRendition(photo, nil)
+      local exportContext = catalog.newExportContext(
+        newService({ collection }),
+        collection,
+        { rendition },
+        { url = settings.url, apiKey = settings.apiKey, serviceId = "" }
+      )
+
+      local success, message = lr.modules.LrFunctionContext.pcallWithContext("test", function(context)
+        Provider.processRenderedPhotos(context, exportContext)
+      end)
+
+      assert.is_false(success)
+      assert.matches("Open and save this publish service's settings before publishing.", message, 1, true)
+      assert.are.equal(0, #lr.http.requests)
+      assert.is_nil(rendition.recordedId)
     end)
 
     describe("sidecars", function()
@@ -357,7 +402,7 @@ describe("Provider", function()
       local function contextFor(rendition, metadataSettings)
         local collection = newCollection(10, "Holiday", "album")
         local exportContext = newExportContext(newService({ collection }), collection, { rendition })
-        local properties = { url = settings.url, apiKey = settings.apiKey }
+        local properties = { url = settings.url, apiKey = settings.apiKey, serviceId = settings.serviceId }
         for k, v in pairs(metadataSettings) do
           properties[k] = v
         end

@@ -197,6 +197,7 @@ function M.settings()
   return {
     url = M.url,
     apiKey = apiKey --[[@as string]],
+    serviceId = "8c5b0f4e-2a51-4d0a-9f3e-6b1d7c2e9a40",
   }
 end
 

@@ -6,6 +6,8 @@ local API = require("API")
 -- Lightroom timestamps: 2001-01-01T00:00:00Z and 2001-01-02T01:00:00Z.
 local dates = { created = 0, modified = 90000 }
 
+local source = { publishService = "service", photoUuid = "photo" }
+
 local function newApi()
   return API.new({ url = "https://gallery.example.com/", apiKey = "secret" })
 end
@@ -115,7 +117,7 @@ describe("API", function()
     it("uploads assets as multipart", function()
       lr.respondJson(201, { id = "asset", status = "created" })
 
-      local result = newApi():uploadAsset("/tmp/photo.jpg", "photo.jpg", dates)
+      local result = newApi():uploadAsset("/tmp/photo.jpg", "photo.jpg", dates, source)
 
       assert.are.same({ id = "asset", status = "created" }, result)
       local req = request(1)
@@ -129,12 +131,17 @@ describe("API", function()
 
       assert.are.equal("2001-01-01T00:00:00Z", chunk(req, "fileCreatedAt").value)
       assert.are.equal("2001-01-02T01:00:00Z", chunk(req, "fileModifiedAt").value)
+
+      assert.are.same(
+        { { key = "LrNoodle", value = { publishService = "service", photoUuid = "photo" } } },
+        json.decode(chunk(req, "metadata").value)
+      )
     end)
 
     it("uploads a sidecar when given one", function()
       lr.respondJson(201, { id = "asset", status = "created" })
 
-      newApi():uploadAsset("/tmp/video.mp4", "video.mp4", dates, "/tmp/video.mp4.xmp")
+      newApi():uploadAsset("/tmp/video.mp4", "video.mp4", dates, source, "/tmp/video.mp4.xmp")
 
       local sidecar = chunk(request(1), "sidecarData")
       assert.are.equal("/tmp/video.mp4.xmp", sidecar.filePath)
@@ -145,7 +152,7 @@ describe("API", function()
     it("doesn't upload a sidecar by default", function()
       lr.respondJson(201, { id = "asset", status = "created" })
 
-      newApi():uploadAsset("/tmp/photo.jpg", "photo.jpg", dates)
+      newApi():uploadAsset("/tmp/photo.jpg", "photo.jpg", dates, source)
 
       assert.is_nil(chunk(request(1), "sidecarData"))
     end)
@@ -153,7 +160,7 @@ describe("API", function()
     it("allows time for large uploads such as videos", function()
       lr.respondJson(201, { id = "asset", status = "created" })
 
-      newApi():uploadAsset("/tmp/video.mp4", "video.mp4", dates)
+      newApi():uploadAsset("/tmp/video.mp4", "video.mp4", dates, source)
 
       assert.are.equal(300, request(1).timeout)
       assert.are.equal("video.mp4", chunk(request(1), "assetData").fileName)

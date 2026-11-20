@@ -168,6 +168,19 @@ describe("Provider against a real server", function()
       server.waitUntilDeleted(api, oldId)
     end)
 
+    it("records the publish service and photo in uploaded assets", function()
+      local photo = catalog.newPhoto(1)
+      local published = catalog.newPublishedPhoto(photo)
+      local collection = catalog.newCollection(1, "Holiday", nil, { published })
+      local service = catalog.newService({ collection })
+
+      publish(service, collection)
+
+      local metadata = ok(api:request("GET", "/assets/" .. published.remoteId .. "/metadata/LrNoodle"))
+      assert.equals("LrNoodle", metadata.key)
+      assert.same({ publishService = server.settings().serviceId, photoUuid = "uuid-1" }, metadata.value)
+    end)
+
     it("uses one asset for a photo in two collections", function()
       local photo = catalog.newPhoto(1)
       local first = catalog.newPublishedPhoto(photo)

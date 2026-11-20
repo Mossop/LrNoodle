@@ -201,9 +201,11 @@ end
 ---@param filePath string
 ---@param fileName string
 ---@param dates AssetDates
+---@param source UploadSource? Stored as the asset's "LrNoodle" metadata. The server only stores it when the
+---upload creates an asset, not for a duplicate.
 ---@param sidecarPath string? An XMP sidecar file with metadata for the asset.
 ---@return UploadResult | Error
-function API:uploadAsset(filePath, fileName, dates, sidecarPath)
+function API:uploadAsset(filePath, fileName, dates, source, sidecarPath)
   local chunks = {
     { name = "fileCreatedAt", value = Utils.formatTimestamp(dates.created) },
     { name = "fileModifiedAt", value = Utils.formatTimestamp(dates.modified) },
@@ -214,6 +216,14 @@ function API:uploadAsset(filePath, fileName, dates, sidecarPath)
       contentType = "application/octet-stream",
     },
   }
+
+  if source then
+    local metadata = Utils.jsonEncode(logger, { { key = "LrNoodle", value = source } })
+    if Utils.isError(metadata) then
+      return Utils.error(metadata)
+    end
+    table.insert(chunks, { name = "metadata", value = Utils.result(metadata) })
+  end
 
   if sidecarPath then
     table.insert(chunks, {

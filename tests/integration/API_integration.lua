@@ -256,7 +256,7 @@ describe("API against a real server", function()
       local sidecarPath = path .. ".xmp"
       ok(Sidecar.write(sidecarPath, assert(Sidecar.build(catalog.newPhoto(1, metadata), {}))))
 
-      local result = ok(api:uploadAsset(path, "photo.jpg", dates, sidecarPath))
+      local result = ok(api:uploadAsset(path, "photo.jpg", dates, nil, sidecarPath))
       os.remove(path)
       os.remove(sidecarPath)
       assert.equals("created", result.status)

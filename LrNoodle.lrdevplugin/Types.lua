@@ -4,6 +4,12 @@
 ---@field url string The base address of the gallery.
 ---@field apiKey string? An API key for the gallery. Only present while editing the settings, otherwise it is
 ---retrieved from the password storage.
+---@field serviceId string? A random UUID identifying the publish service, created when its settings are first
+---opened. Services created before it was added have none until their settings are saved.
+
+---@class UploadSource Recorded in the "LrNoodle" metadata of every uploaded asset.
+---@field publishService string The `serviceId` of the publish service that uploaded the asset.
+---@field photoUuid string The UUID of the Lightroom photo the asset was rendered from.
 
 ---@class PluginPrefs : LrObservableTable
 ---@field debugLogging boolean? Whether to log debugging output.

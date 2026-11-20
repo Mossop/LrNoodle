@@ -32,7 +32,7 @@ function M.newKeyword(name, parent, includeOnExport, keywordType, synonyms)
 end
 
 -- Raw metadata defaults to a capture time of 2001-01-01T00:00:00Z and a last
--- edit of 2001-01-02T01:00:00Z.
+-- edit of 2001-01-02T01:00:00Z. The UUID defaults to "uuid-<id>".
 function M.newPhoto(id, metadata)
   local photo = {
     localIdentifier = id,
@@ -40,6 +40,9 @@ function M.newPhoto(id, metadata)
   }
 
   function photo:getRawMetadata(key)
+    if key == "uuid" and self.metadata.uuid == nil then
+      return "uuid-" .. self.localIdentifier
+    end
     return self.metadata[key]
   end
 

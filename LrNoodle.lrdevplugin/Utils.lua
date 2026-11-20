@@ -16,6 +16,7 @@ local ERROR_CODES = {
   renderFailed = "The photo could not be rendered.",
   sidecarWrite = "Could not write the metadata file: ^1",
   invalidJson = "The gallery returned an invalid response.",
+  noServiceId = "Open and save this publish service's settings before publishing.",
   exception = "An unexpected error occurred: ^1",
 }
 
@@ -225,6 +226,24 @@ end
 ---@return string
 function Utils.formatTimestamp(time)
   return os.date("!%Y-%m-%dT%H:%M:%SZ", math.floor(LrDate.timeToPosixDate(time))) --[[@as string]]
+end
+
+local seeded = false
+
+--- Generates a random version 4 UUID. Lightroom has no API for this.
+---@return string
+function Utils.generateUuid()
+  if not seeded then
+    math.randomseed(math.floor(LrDate.currentTime() * 1000) % 2147483647)
+    seeded = true
+  end
+
+  return (
+    string.gsub("xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx", "[xy]", function(c)
+      local value = c == "x" and math.random(0, 15) or math.random(8, 11)
+      return string.format("%x", value)
+    end)
+  )
 end
 
 ---@param tbl table
