@@ -129,6 +129,147 @@ describe("Sidecar", function()
     assert.is_true(contains(xmp, "<rdf:li>Paris</rdf:li>"))
   end)
 
+  it("replaces people in video tags when asked", function()
+    local xmp = Sidecar.build(photoWithPerson(), {
+      LR_metadata_keywordOptions = "lightroomHierarchical",
+      replacePeopleTags = true,
+      replacePeopleInVideos = true,
+      peopleReplacementTag = "Has people",
+    })
+
+    assert.is_false(contains(xmp, "Alice"))
+    assert.is_false(contains(xmp, "<rdf:li>Ali</rdf:li>"))
+    assert.is_false(contains(xmp, "People"))
+    assert.is_true(contains(xmp, "<rdf:li>bike</rdf:li>"))
+    assert.is_true(contains(xmp, "<rdf:li>Has people</rdf:li>"))
+  end)
+
+  it("keeps people in video tags unless people are replaced for photos too", function()
+    local xmp = Sidecar.build(photoWithPerson(), { replacePeopleInVideos = true, peopleReplacementTag = "Has people" })
+
+    assert.is_true(contains(xmp, "<rdf:li>Alice Smith</rdf:li>"))
+    assert.is_false(contains(xmp, "Has people"))
+  end)
+
+  it("doesn't add the replacement tag to videos when people are left out", function()
+    local xmp = Sidecar.build(photoWithPerson(), {
+      LR_removeFaceMetadata = true,
+      replacePeopleTags = true,
+      replacePeopleInVideos = true,
+      peopleReplacementTag = "Has people",
+    })
+
+    assert.is_false(contains(xmp, "Has people"))
+    assert.is_true(contains(xmp, "<rdf:li>bike</rdf:li>"))
+  end)
+
+  it("doesn't add the replacement tag to videos without people", function()
+    local xmp = Sidecar.build(fullPhoto(), {
+      replacePeopleTags = true,
+      replacePeopleInVideos = true,
+      peopleReplacementTag = "Has people",
+    })
+
+    assert.is_false(contains(xmp, "Has people"))
+  end)
+
+  describe("buildTags", function()
+    it("lists the tags without people", function()
+      local xmp = Sidecar.buildTags(photoWithPerson(), { replacePeopleTags = true })
+
+      assert.is_true(contains(xmp, 'xmlns:digiKam="http://www.digikam.org/ns/1.0/"'))
+      assert.is_true(contains(xmp, "<digiKam:TagsList>\n    <rdf:Seq>\n     <rdf:li>bike</rdf:li>\n    </rdf:Seq>"))
+      assert.is_false(contains(xmp, "Alice"))
+      assert.is_false(contains(xmp, "<rdf:li>Ali</rdf:li>"))
+      assert.is_false(contains(xmp, "People"))
+      assert.is_false(contains(xmp, "dc:subject"))
+    end)
+
+    it("includes hierarchical tags the way the gallery names them", function()
+      local people = newKeyword("People")
+      local places = newKeyword("Places")
+      local photo = newPhoto({
+        keywords = {
+          newKeyword("Alice Smith", people, true, "person"),
+          newKeyword("Paris", newKeyword("Île-de-France", places)),
+          newKeyword("AC/DC", newKeyword("Bands")),
+        },
+      }, {
+        keywordTagsForExport = "Alice Smith, People, Paris, Île-de-France, Places, AC/DC, Bands",
+      })
+
+      local xmp = Sidecar.buildTags(photo, { replacePeopleTags = true, LR_metadata_keywordOptions = "lightroomHierarchical" })
+
+      assert.is_true(contains(xmp, "<rdf:li>Places/Île-de-France/Paris</rdf:li>"))
+      assert.is_true(contains(xmp, "<rdf:li>Bands/AC|DC</rdf:li>"))
+      assert.is_true(contains(xmp, "<rdf:li>Paris</rdf:li>"))
+      assert.is_true(contains(xmp, "<rdf:li>AC/DC</rdf:li>"))
+      assert.is_false(contains(xmp, "Alice"))
+      assert.is_false(contains(xmp, "People"))
+    end)
+
+    it("adds the replacement tag", function()
+      local xmp = Sidecar.buildTags(photoWithPerson(), { replacePeopleTags = true, peopleReplacementTag = "  Has people " })
+
+      assert.is_true(contains(xmp, "<rdf:li>bike</rdf:li>\n     <rdf:li>Has people</rdf:li>"))
+    end)
+
+    it("doesn't repeat a replacement tag the photo already has", function()
+      local xmp = Sidecar.buildTags(photoWithPerson(), { replacePeopleTags = true, peopleReplacementTag = "bike" })
+
+      local _, count = string.gsub(xmp, "<rdf:li>bike</rdf:li>", "")
+      assert.are.equal(1, count)
+    end)
+
+    it("lists only the replacement tag for a photo with only people", function()
+      local photo = newPhoto({
+        keywords = { newKeyword("Alice Smith", nil, true, "person") },
+      }, { keywordTagsForExport = "Alice Smith" })
+
+      local xmp = Sidecar.buildTags(photo, { replacePeopleTags = true, peopleReplacementTag = "Has people" })
+
+      assert.is_true(contains(xmp, "<rdf:Seq>\n     <rdf:li>Has people</rdf:li>\n    </rdf:Seq>"))
+    end)
+
+    it("returns nothing for a photo with only people and no replacement tag", function()
+      local photo = newPhoto({
+        keywords = { newKeyword("Alice Smith", nil, true, "person") },
+      }, { keywordTagsForExport = "Alice Smith" })
+
+      assert.is_nil(Sidecar.buildTags(photo, { replacePeopleTags = true, peopleReplacementTag = " " }))
+    end)
+
+    it("returns nothing for a photo without people", function()
+      assert.is_nil(Sidecar.buildTags(fullPhoto(), { replacePeopleTags = true, peopleReplacementTag = "Has people" }))
+    end)
+
+    it("returns nothing for a person keyword that isn't exported", function()
+      local photo = newPhoto({
+        keywords = { newKeyword("Alice Smith", nil, false, "person"), newKeyword("bike") },
+      }, { keywordTagsForExport = "bike" })
+
+      assert.is_nil(Sidecar.buildTags(photo, { replacePeopleTags = true, peopleReplacementTag = "Has people" }))
+    end)
+
+    it("returns nothing when the settings leave out people", function()
+      assert.is_nil(Sidecar.buildTags(photoWithPerson(), { replacePeopleTags = true, LR_removeFaceMetadata = true }))
+      assert.is_nil(
+        Sidecar.buildTags(photoWithPerson(), { replacePeopleTags = true, LR_embeddedMetadataOption = "copyrightOnly" })
+      )
+    end)
+
+    it("returns nothing unless asked to replace people", function()
+      assert.is_nil(Sidecar.buildTags(photoWithPerson(), { peopleReplacementTag = "Has people" }))
+    end)
+  end)
+
+  it("knows whether the settings include people", function()
+    assert.is_true(Sidecar.includesPeople({}))
+    assert.is_true(Sidecar.includesPeople({ LR_embeddedMetadataOption = "allExceptCameraInfo" }))
+    assert.is_false(Sidecar.includesPeople({ LR_removeFaceMetadata = true }))
+    assert.is_false(Sidecar.includesPeople({ LR_embeddedMetadataOption = "copyrightAndContactOnly" }))
+  end)
+
   it("leaves out a location marked private", function()
     local photo = fullPhoto()
     photo.raw.locationIsPrivate = true

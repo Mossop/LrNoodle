@@ -9,7 +9,8 @@ Immich compatible; the spec is at `https://gallery.clantownsend.com/api/spec.jso
   - `Provider.lua`: the publish service provider. Lightroom callbacks, the settings dialog, and the
     publishing, deletion and album logic.
   - `API.lua`: all server communication. Every call returns `T | Error`.
-  - `Sidecar.lua`: builds XMP sidecars for videos from Lightroom metadata, filtered by the publish settings.
+  - `Sidecar.lua`: builds XMP sidecars for videos from Lightroom metadata, filtered by the publish settings,
+    and tag-only sidecars for photos with people.
   - `PluginInfo.lua`: the Plug-in Manager section (the debug logging checkbox).
   - `Types.lua`: `---@meta` type definitions for server responses and settings.
   - `Utils.lua`, `Logging.lua`, `ProgressScope.lua`, `json.lua`: shared helpers provided by the user. Ask
@@ -52,6 +53,8 @@ LuaLS warnings about busted globals in `tests/` are expected and can be ignored.
   identical file. That asset may not have been uploaded by the plugin, so the upload that matched it uses
   it as is: nothing is copied over it and it isn't deleted. Once it is recorded as a photo's asset it is
   treated like any other (see the user decisions below).
+- Tags come from a `digiKam:TagsList` if there is one, otherwise from the union of `HierarchicalSubject` and
+  `Keywords`. A sidecar's values override the embedded ones key by key, but an empty `TagsList` is ignored.
 - `PUT /assets/copy` copies the sidecar by default. The plugin always sends `sidecar = false` so a new
   sidecar isn't overwritten.
 - `DELETE /assets` moves to the trash unless `force = true`.
@@ -110,6 +113,17 @@ must degrade gracefully: Immich returns 404 for them, which `getAssetSpaces` tre
 - Videos get an XMP sidecar on upload rather than metadata set through the API. It mirrors Lightroom's
   export behaviour: "Remove Person Info" drops person keywords and their parents; "Export Containing
   Keywords" affects the flat list but not the hierarchical paths.
+- When `replacePeopleTags` is set and the export settings include people, photos with exported person
+  keywords are uploaded with a sidecar holding only a `digiKam:TagsList` of their other tags plus the
+  optional replacement tag (`peopleReplacementTag`), so people come from the face regions alone. An empty
+  replacement tag is allowed and only warned about in the settings dialog. Videos do the same only when
+  `replacePeopleInVideos` is also set.
+- The Person Tags section is at the bottom of the dialog, since plug-in sections can't go next to Metadata.
+  Its controls are disabled, not hidden, when the metadata settings exclude people, since Lightroom can't
+  hide a whole section. The rows below the main checkbox are hidden while it is unchecked. Rows and columns
+  don't accept `visible`, so anything that hides is wrapped in an `f:view`. State that depends on several
+  settings comes from plain properties
+  set by observers in `startDialog` (e.g. `includesPeople`), since a multi-key `bind` didn't work.
 - Published photo URLs are `<gallery>/photos/<assetId>`.
 - An asset recorded for a photo through a duplicate upload response, e.g. one uploaded by the gallery's
   mobile app, is replaced and permanently deleted like a plugin-uploaded asset if the photo later changes.

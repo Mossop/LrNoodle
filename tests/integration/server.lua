@@ -101,12 +101,13 @@ end
 
 local photoCount = 0
 
--- Writes a copy of the fixture photo to a temporary file and returns its path.
--- Each copy has different trailing bytes so the server doesn't treat them as
--- duplicates. The caller should remove the file.
+-- Writes a copy of a fixture photo, by default photo.jpg, to a temporary file
+-- and returns its path. Each copy has different trailing bytes so the server
+-- doesn't treat them as duplicates. The caller should remove the file.
+---@param fixture string? The fixture's name without the extension.
 ---@return string
-function M.photo()
-  local source = assert(io.open("tests/integration/fixtures/photo.jpg", "rb"))
+function M.photo(fixture)
+  local source = assert(io.open("tests/integration/fixtures/" .. (fixture or "photo") .. ".jpg", "rb"))
   local content = source:read("*a")
   source:close()
 

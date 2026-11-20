@@ -134,6 +134,39 @@ describe("Provider", function()
       assert.are.equal(properties.LR_cantExportBecause, properties.error)
     end)
 
+    it("enables the person tag settings only when people are exported", function()
+      local properties = newPropertyTable({ url = "gallery" })
+      Provider.startDialog(properties)
+      assert.is_true(properties.includesPeople)
+
+      properties.LR_removeFaceMetadata = true
+      properties.observers.LR_removeFaceMetadata(properties)
+      assert.is_false(properties.includesPeople)
+
+      properties.LR_removeFaceMetadata = false
+      properties.LR_embeddedMetadataOption = "copyrightOnly"
+      properties.observers.LR_embeddedMetadataOption(properties)
+      assert.is_false(properties.includesPeople)
+    end)
+
+    it("warns about a missing replacement tag only when replacing people", function()
+      local properties = newPropertyTable({ url = "gallery", peopleReplacementTag = "" })
+      Provider.startDialog(properties)
+      assert.is_false(properties.peopleTagMissing)
+
+      properties.replacePeopleTags = true
+      properties.observers.replacePeopleTags(properties)
+      assert.is_true(properties.peopleTagMissing)
+
+      properties.peopleReplacementTag = "  "
+      properties.observers.peopleReplacementTag(properties)
+      assert.is_true(properties.peopleTagMissing)
+
+      properties.peopleReplacementTag = "Has people"
+      properties.observers.peopleReplacementTag(properties)
+      assert.is_false(properties.peopleTagMissing)
+    end)
+
     it("rechecks when settings change", function()
       lr.respond({ status = 401 })
       local properties = newPropertyTable({ url = "https://gallery.example.com" })
@@ -299,7 +332,7 @@ describe("Provider", function()
       assert.is_nil(rendition.failure)
     end)
 
-    describe("videos", function()
+    describe("sidecars", function()
       local render
 
       -- A video rendition rendered to a real file so the sidecar can be
@@ -311,6 +344,13 @@ describe("Provider", function()
         function rendition:waitForRender()
           return true, render
         end
+        return rendition
+      end
+
+      -- The same for a photo.
+      local function newImage(metadata)
+        local rendition = newVideo(metadata)
+        metadata.isVideo = false
         return rendition
       end
 
@@ -371,6 +411,28 @@ describe("Provider", function()
         assert.is_truthy(string.find(chunk(3, "sidecarData").content, "<xmp:Rating>2</xmp:Rating>", 1, true))
         assert.are.same({ sourceId = "old", targetId = "new", sidecar = false }, requestBody(5))
         assert.are.equal("new", rendition.recordedId)
+      end)
+
+      it("uploads photos with people with a sidecar of their tags", function()
+        local rendition = newImage({
+          keywords = { catalog.newKeyword("Alice", nil, true, "person"), catalog.newKeyword("bike") },
+          formatted = { keywordTagsForExport = "Alice, bike" },
+        })
+        local exportContext = contextFor(rendition, { replacePeopleTags = true, peopleReplacementTag = "Has people" })
+
+        albumExists()
+        lr.respondJson(201, { id = "asset", status = "created" })
+        lr.respondJson(200, { { id = "asset", success = true } })
+
+        publish(exportContext)
+
+        local sidecar = chunk(2, "sidecarData")
+        assert.are.equal(render .. ".xmp", sidecar.filePath)
+        assert.is_truthy(string.find(sidecar.content, "<digiKam:TagsList>", 1, true))
+        assert.is_truthy(string.find(sidecar.content, "<rdf:li>Has people</rdf:li>", 1, true))
+        assert.is_falsy(string.find(sidecar.content, "Alice", 1, true))
+        assert.are.equal("asset", rendition.recordedId)
+        assert.is_nil(io.open(render .. ".xmp", "r"))
       end)
 
       it("doesn't upload a sidecar when the settings exclude the metadata", function()

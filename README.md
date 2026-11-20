@@ -93,8 +93,26 @@ holding their metadata. It follows the Metadata section of the publish settings:
 - GPS location, unless "Remove Location Info" is checked or the location is marked private.
 - Keywords, following each keyword's "Include on Export" and "Export Containing Keywords" settings and the
   choice of flat or hierarchical keywords. With "Remove Person Info" checked, person keywords and their
-  parents are left out.
+  parents are left out. They are also left out, and the replacement tag added, when "Leave people out of
+  video tags too" is checked (see [Person tags](#person-tags)).
 - Nothing is included if the metadata setting is "Copyright Only" or "Copyright & Contact Info Only".
+
+## Person tags
+
+When the Metadata section includes person info, Lightroom embeds each person both as a face region and as
+a keyword, so the gallery shows them as a person and as a tag. The "Person Tags" section at the bottom of
+the publish settings, enabled only when the Metadata section includes person info, can stop that:
+
+- **Leave people out of photo tags**: keeps the face regions but stops person keywords and their parents
+  becoming tags. The plugin uploads photos with people with an XMP sidecar listing the photo's other tags,
+  which the gallery uses instead of the embedded keywords.
+- **Replacement tag**: added to photos with people in place of the person keywords. Use `/` to nest tags,
+  e.g. `Subjects/People`. If it is empty, a photo whose only exported keywords are people keeps them as
+  tags, since the gallery ignores an empty list of tags in a sidecar.
+- **Leave people out of video tags too**: videos have no face regions, so by default their person keywords
+  stay as tags. Check this to treat them like photos.
+
+The gallery only creates people from face regions if "Import faces" is enabled in its metadata settings.
 
 ### Known limitations
 

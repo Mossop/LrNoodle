@@ -371,6 +371,130 @@ describe("Provider against a real server", function()
     end)
   end)
 
+  describe("person tags", function()
+    -- Matches the keywords and face region embedded in the people fixture.
+    local function photoWithPeople()
+      return catalog.newPhoto(1, {
+        dateTimeOriginal = 0,
+        lastEditTime = 90000,
+        keywords = {
+          catalog.newKeyword("Alice Example", catalog.newKeyword("People"), true, "person"),
+          catalog.newKeyword("bike"),
+        },
+        formatted = { keywordTagsForExport = "Alice Example, People, bike" },
+      })
+    end
+
+    -- Sets whether the server creates people from face regions. The config is
+    -- edited as text since decoding and encoding it again turns its empty
+    -- arrays into objects, which the server rejects.
+    ---@param faces boolean
+    local function importFaces(faces)
+      local http = require("curl_http")
+      local url = setup.apiUrl .. "/system-config"
+      local headers = {
+        { field = "x-api-key", value = setup.apiKey },
+        { field = "Content-Type", value = "application/json" },
+      }
+
+      local config = http.get(url, headers)
+      local changed, count = string.gsub(config, '"faces":{"import":%a+}', '"faces":{"import":' .. tostring(faces) .. "}")
+      assert.equals(1, count)
+
+      local _, response = http.post(url, changed, headers, "PUT")
+      assert.equals(200, response.status)
+    end
+
+    -- Waits for the server to read the asset's tags and people, then returns
+    -- their names.
+    ---@param assetId string
+    ---@return string[], string[]
+    local function tagsAndPeople(assetId)
+      local asset = server.waitFor("the tags and people of " .. assetId, function()
+        local asset = ok(api:getAsset(assetId))
+        if asset.tags and #asset.tags > 0 and asset.people and #asset.people > 0 then
+          return asset
+        end
+      end)
+
+      local tags = {}
+      for _, tag in ipairs(asset.tags) do
+        table.insert(tags, tag.value)
+      end
+      local people = {}
+      for _, person in ipairs(asset.people) do
+        table.insert(people, person.name)
+      end
+      return sorted(tags), sorted(people)
+    end
+
+    before_each(function()
+      importFaces(true)
+    end)
+
+    after_each(function()
+      importFaces(false)
+    end)
+
+    it("are kept unless asked to replace them", function()
+      local published = catalog.newPublishedPhoto(photoWithPeople())
+      local collection = catalog.newCollection(1, "Holiday", nil, { published })
+      local service = catalog.newService({ collection })
+
+      publish(service, collection, {
+        files = { [1] = server.photo("people") },
+        settings = { peopleReplacementTag = "Has people" },
+      })
+
+      local tags, people = tagsAndPeople(published.remoteId)
+      assert.same({ "Alice Example", "People", "bike" }, tags)
+      assert.same({ "Alice Example" }, people)
+    end)
+
+    it("are replaced when uploading a photo", function()
+      local published = catalog.newPublishedPhoto(photoWithPeople())
+      local collection = catalog.newCollection(1, "Holiday", nil, { published })
+      local service = catalog.newService({ collection })
+
+      publish(service, collection, {
+        files = { [1] = server.photo("people") },
+        settings = { replacePeopleTags = true, peopleReplacementTag = "Has people" },
+      })
+
+      local tags, people = tagsAndPeople(published.remoteId)
+      assert.same({ "Has people", "bike" }, tags)
+      assert.same({ "Alice Example" }, people)
+    end)
+
+    it("are replaced when replacing a photo", function()
+      local photo = photoWithPeople()
+      local published = catalog.newPublishedPhoto(photo)
+      local collection = catalog.newCollection(1, "Holiday", nil, { published })
+      local service = catalog.newService({ collection })
+
+      publish(service, collection, {
+        files = { [1] = server.photo("people") },
+        settings = { replacePeopleTags = true, peopleReplacementTag = "Has people" },
+      })
+      local oldId = published.remoteId
+      tagsAndPeople(oldId)
+
+      catalog.editPhoto(service, photo)
+      publish(service, collection, {
+        files = { [1] = server.photo("people") },
+        settings = { replacePeopleTags = true, peopleReplacementTag = "Family" },
+      })
+
+      local newId = published.remoteId
+      assert.not_equals(oldId, newId)
+      local tags, people = tagsAndPeople(newId)
+      -- Nothing from the old asset's tags is kept.
+      assert.same({ "Family", "bike" }, tags)
+      assert.same({ "Alice Example" }, people)
+      server.waitUntilDeleted(api, oldId)
+    end)
+  end)
+
   describe("removing photos", function()
     it("trashes the asset of a photo used nowhere else", function()
       local published = catalog.newPublishedPhoto(catalog.newPhoto(1))

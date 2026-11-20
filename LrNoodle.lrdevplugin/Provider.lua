@@ -34,6 +34,9 @@ Provider.hideSections = {
 -- the settings.
 Provider.exportPresetFields = {
   { key = "url", default = "" },
+  { key = "replacePeopleTags", default = false },
+  { key = "peopleReplacementTag", default = "" },
+  { key = "replacePeopleInVideos", default = false },
 }
 
 Provider.publish_fallbackNameBinding = "url"
@@ -382,17 +385,21 @@ local function photoDates(photo)
 end
 
 --- Lightroom doesn't embed metadata in videos so writes a sidecar holding it.
+--- Photos with people get a sidecar holding their tags without the people.
 --- Returns the sidecar's path, or nil if there is no sidecar to upload.
 ---@param rendition LrExportRendition
 ---@param path string The rendered file.
 ---@param settings MetadataSettings
 ---@return string | Error | nil
 local function writeSidecar(rendition, path, settings)
-  if not rendition.photo:getRawMetadata("isVideo") then
-    return nil
+  ---@type string?
+  local xmp
+  if rendition.photo:getRawMetadata("isVideo") then
+    xmp = Sidecar.build(rendition.photo, settings)
+  else
+    xmp = Sidecar.buildTags(rendition.photo, settings)
   end
 
-  local xmp = Sidecar.build(rendition.photo, settings)
   if not xmp then
     logger:debug("Photo", rendition.photo.localIdentifier, "has no metadata for a sidecar")
     return nil
@@ -1210,6 +1217,15 @@ local function verifySettings(propertyTable)
   end)
 end
 
+--- Updates the properties the person tags section enables controls and shows
+--- the warning with, since they depend on several settings.
+---@param propertyTable table
+local function updatePeopleSettings(propertyTable)
+  propertyTable.includesPeople = Sidecar.includesPeople(propertyTable)
+  propertyTable.peopleTagMissing = propertyTable.replacePeopleTags == true
+    and string.match(propertyTable.peopleReplacementTag or "", "^%s*$") ~= nil
+end
+
 ---@param propertyTable table
 function Provider.startDialog(propertyTable)
   propertyTable.error = ""
@@ -1238,6 +1254,16 @@ function Provider.startDialog(propertyTable)
 
   propertyTable:addObserver("url", verifySettings)
   propertyTable:addObserver("apiKey", verifySettings)
+
+  updatePeopleSettings(propertyTable)
+  for _, key in ipairs({
+    "LR_embeddedMetadataOption",
+    "LR_removeFaceMetadata",
+    "replacePeopleTags",
+    "peopleReplacementTag",
+  }) do
+    propertyTable:addObserver(key, updatePeopleSettings)
+  end
 end
 
 ---@param propertyTable table
@@ -1296,9 +1322,9 @@ function Provider.sectionsForTopOfDialog(f, propertyTable) -- luacheck: ignore p
           }),
         }),
 
-        f:row({
+        -- Rows don't support visible, so a view wraps the row to hide.
+        f:view({
           fill_horizontal = 1,
-          spacing = f:label_spacing(),
           visible = bind({
             key = "error",
             transform = function(value)
@@ -1306,15 +1332,113 @@ function Provider.sectionsForTopOfDialog(f, propertyTable) -- luacheck: ignore p
             end,
           }),
 
-          f:spacer({
-            width = LrView.share("label_width"),
-          }),
-
-          f:static_text({
+          f:row({
             fill_horizontal = 1,
-            text_color = LrColor(1, 0, 0),
-            title = bind("error"),
-            alignment = "left",
+            spacing = f:label_spacing(),
+
+            f:spacer({
+              width = LrView.share("label_width"),
+            }),
+
+            f:static_text({
+              fill_horizontal = 1,
+              text_color = LrColor(1, 0, 0),
+              title = bind("error"),
+              alignment = "left",
+            }),
+          }),
+        }),
+      }),
+    },
+  }
+end
+
+---@param f LrViewFactory
+---@param propertyTable table
+---@return table[]
+function Provider.sectionsForBottomOfDialog(f, propertyTable) -- luacheck: ignore propertyTable
+  return {
+    {
+      title = LOC("$$$/LrNoodle/Settings/People/Title=Person Tags"),
+
+      f:column({
+        fill_horizontal = 1,
+        spacing = f:control_spacing(),
+
+        f:checkbox({
+          title = LOC(
+            "$$$/LrNoodle/Settings/People/Replace=Leave people out of photo tags. Face regions still identify them."
+          ),
+          value = bind("replacePeopleTags"),
+          enabled = bind("includesPeople"),
+        }),
+
+        -- Rows and columns don't support visible, so a view wraps the rows to hide.
+        f:view({
+          fill_horizontal = 1,
+          visible = bind("replacePeopleTags"),
+
+          f:column({
+            fill_horizontal = 1,
+            spacing = f:control_spacing(),
+
+            f:row({
+              fill_horizontal = 1,
+              spacing = f:label_spacing(),
+
+              f:static_text({
+                title = LOC("$$$/LrNoodle/Settings/People/Tag/Label=Replacement tag:"),
+                alignment = "right",
+                width = LrView.share("label_width"),
+              }),
+
+              f:edit_field({
+                width_in_chars = 40,
+                immediate = true,
+                enabled = bind("includesPeople"),
+                tooltip = LOC(
+                  "$$$/LrNoodle/Settings/People/Tag/Tooltip=Added to photos with people instead. Use / to nest tags."
+                ),
+                value = bind("peopleReplacementTag"),
+              }),
+            }),
+
+            f:view({
+              fill_horizontal = 1,
+              visible = bind("peopleTagMissing"),
+
+              f:row({
+                fill_horizontal = 1,
+                spacing = f:label_spacing(),
+
+                f:spacer({
+                  width = LrView.share("label_width"),
+                }),
+
+                f:static_text({
+                  fill_horizontal = 1,
+                  text_color = LrColor(1, 0, 0),
+                  title = LOC(
+                    "$$$/LrNoodle/Settings/People/Tag/Empty=Without one, photos with only people keep them as tags."
+                  ),
+                }),
+              }),
+            }),
+
+            f:row({
+              fill_horizontal = 1,
+              spacing = f:label_spacing(),
+
+              f:spacer({
+                width = LrView.share("label_width"),
+              }),
+
+              f:checkbox({
+                title = LOC("$$$/LrNoodle/Settings/People/Videos=Leave people out of video tags too"),
+                value = bind("replacePeopleInVideos"),
+                enabled = bind("includesPeople"),
+              }),
+            }),
           }),
         }),
       }),

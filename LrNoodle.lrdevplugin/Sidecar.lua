@@ -1,6 +1,8 @@
 -- Builds XMP sidecar files carrying a photo's metadata. Lightroom embeds
 -- metadata in rendered photos but not in videos, so videos are uploaded with a
--- sidecar that the gallery reads instead.
+-- sidecar that the gallery reads instead. Rendered photos with people get a
+-- sidecar too, holding just their tags without the people's names, since the
+-- gallery prefers a sidecar's tags to the embedded keywords.
 
 local Utils = require("Utils")
 
@@ -15,6 +17,9 @@ local Sidecar = {}
 ---@field LR_removeLocationMetadata boolean? True to leave out the location.
 ---@field LR_removeFaceMetadata boolean? True to leave out people.
 ---@field LR_metadata_keywordOptions string? "flat" or "lightroomHierarchical".
+---@field replacePeopleTags boolean? True to remove people from the tags of photos.
+---@field peopleReplacementTag string? A tag added in place of the people removed from the tags.
+---@field replacePeopleInVideos boolean? True to remove people from the tags of videos too.
 
 local ESCAPES = {
   ["&"] = "&amp;",
@@ -62,15 +67,50 @@ local function langAlt(name, value)
 end
 
 ---@param name string
+---@param container string "rdf:Bag" or "rdf:Seq".
 ---@param values string[]
 ---@return string
-local function bag(name, values)
+local function array(name, container, values)
   ---@type string[]
   local items = {}
   for _, value in ipairs(values) do
     table.insert(items, string.format("     <rdf:li>%s</rdf:li>", escape(value)))
   end
-  return string.format("   <%s>\n    <rdf:Bag>\n%s\n    </rdf:Bag>\n   </%s>", name, table.concat(items, "\n"), name)
+  return string.format(
+    "   <%s>\n    <%s>\n%s\n    </%s>\n   </%s>",
+    name,
+    container,
+    table.concat(items, "\n"),
+    container,
+    name
+  )
+end
+
+---@param name string
+---@param values string[]
+---@return string
+local function bag(name, values)
+  return array(name, "rdf:Bag", values)
+end
+
+---@param properties string[]
+---@return string
+local function wrap(properties)
+  return table.concat({
+    '<x:xmpmeta xmlns:x="adobe:ns:meta/">',
+    ' <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">',
+    '  <rdf:Description rdf:about=""',
+    '    xmlns:dc="http://purl.org/dc/elements/1.1/"',
+    '    xmlns:xmp="http://ns.adobe.com/xap/1.0/"',
+    '    xmlns:exif="http://ns.adobe.com/exif/1.0/"',
+    '    xmlns:lr="http://ns.adobe.com/lightroom/1.0/"',
+    '    xmlns:digiKam="http://www.digikam.org/ns/1.0/">',
+    table.concat(properties, "\n"),
+    "  </rdf:Description>",
+    " </rdf:RDF>",
+    "</x:xmpmeta>",
+    "",
+  }, "\n")
 end
 
 ---@param value any
@@ -180,16 +220,69 @@ local function hierarchicalKeywords(photo, excludePeople)
   return paths
 end
 
---- Builds an XMP sidecar for the photo containing the metadata the publish
+--- Whether the publish settings export keywords at all.
+---@param settings MetadataSettings
+---@return boolean
+local function includesMetadata(settings)
+  -- The copyright options don't allow any of the metadata we include.
+  return string.match(settings.LR_embeddedMetadataOption or "all", "^all") ~= nil
+end
+
+--- Whether the publish settings export people, so person keywords would
+--- become tags unless they are replaced.
+---@param settings MetadataSettings
+---@return boolean
+function Sidecar.includesPeople(settings)
+  return includesMetadata(settings) and settings.LR_removeFaceMetadata ~= true
+end
+
+--- Whether any person keyword would be exported with the photo.
+---@param photo LrPhoto
+---@return boolean
+local function hasPeople(photo)
+  return #flatKeywords(photo, false) > #flatKeywords(photo, true)
+end
+
+--- Adds the replacement tag to a list of tags if the photo has people and the
+--- tag isn't in the list already.
+---@param tags string[]
+---@param photo LrPhoto
+---@param settings MetadataSettings
+local function addReplacementTag(tags, photo, settings)
+  local tag = nonEmpty(string.match(settings.peopleReplacementTag or "", "^%s*(.-)%s*$"))
+  if not tag or not hasPeople(photo) then
+    return
+  end
+
+  for _, existing in ipairs(tags) do
+    if existing == tag then
+      return
+    end
+  end
+  table.insert(tags, tag)
+end
+
+--- Converts a Lightroom keyword path, e.g. "Places|France|Paris", to the
+--- gallery's form, e.g. "Places/France/Paris", the same way the gallery does.
+---@param path string
+---@return string
+local function galleryPath(path)
+  ---@type string[]
+  local names = {}
+  for name in string.gmatch(path, "[^|]+") do
+    table.insert(names, (string.gsub(name, "/", "|")))
+  end
+  return table.concat(names, "/")
+end
+
+--- Builds an XMP sidecar for a video containing the metadata the publish
 --- settings allow. Returns nil if there is no metadata to include.
 ---@param photo LrPhoto
 ---@param settings MetadataSettings
 ---@return string?
 function Sidecar.build(photo, settings)
-  local option = settings.LR_embeddedMetadataOption or "all"
-  -- The copyright options don't allow any of the metadata we include.
-  if not string.match(option, "^all") then
-    logger:debug("Metadata option", option, "excludes the sidecar metadata")
+  if not includesMetadata(settings) then
+    logger:debug("Metadata option", settings.LR_embeddedMetadataOption, "excludes the sidecar metadata")
     return nil
   end
 
@@ -224,9 +317,15 @@ function Sidecar.build(photo, settings)
     end
   end
 
-  local excludePeople = settings.LR_removeFaceMetadata == true
+  local replacePeople = Sidecar.includesPeople(settings)
+    and settings.replacePeopleTags == true
+    and settings.replacePeopleInVideos == true
+  local excludePeople = settings.LR_removeFaceMetadata == true or replacePeople
 
   local keywords = flatKeywords(photo, excludePeople)
+  if replacePeople then
+    addReplacementTag(keywords, photo, settings)
+  end
   if #keywords > 0 then
     table.insert(properties, bag("dc:subject", keywords))
   end
@@ -242,20 +341,56 @@ function Sidecar.build(photo, settings)
     return nil
   end
 
-  return table.concat({
-    '<x:xmpmeta xmlns:x="adobe:ns:meta/">',
-    ' <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">',
-    '  <rdf:Description rdf:about=""',
-    '    xmlns:dc="http://purl.org/dc/elements/1.1/"',
-    '    xmlns:xmp="http://ns.adobe.com/xap/1.0/"',
-    '    xmlns:exif="http://ns.adobe.com/exif/1.0/"',
-    '    xmlns:lr="http://ns.adobe.com/lightroom/1.0/">',
-    table.concat(properties, "\n"),
-    "  </rdf:Description>",
-    " </rdf:RDF>",
-    "</x:xmpmeta>",
-    "",
-  }, "\n")
+  return wrap(properties)
+end
+
+--- Builds an XMP sidecar for a rendered photo whose exported keywords include
+--- people, if the settings ask for people to be removed from tags. It holds
+--- a digiKam:TagsList, which the gallery uses instead of the embedded
+--- keywords, listing the tags the gallery would otherwise create without the
+--- people, plus the replacement tag. The embedded face regions
+--- still identify the people. Returns nil if the photo needs no sidecar, or if
+--- the list would be empty since the gallery then ignores it.
+---@param photo LrPhoto
+---@param settings MetadataSettings
+---@return string?
+function Sidecar.buildTags(photo, settings)
+  if not settings.replacePeopleTags or not Sidecar.includesPeople(settings) then
+    return nil
+  end
+
+  if not hasPeople(photo) then
+    return nil
+  end
+
+  ---@type string[]
+  local tags = {}
+  ---@type { [string]: boolean }
+  local seen = {}
+  ---@param tag string
+  local function add(tag)
+    if not seen[tag] then
+      seen[tag] = true
+      table.insert(tags, tag)
+    end
+  end
+
+  -- The gallery creates tags from both the hierarchical and flat keywords.
+  if settings.LR_metadata_keywordOptions == "lightroomHierarchical" then
+    for _, path in ipairs(hierarchicalKeywords(photo, true)) do
+      add(galleryPath(path))
+    end
+  end
+  for _, keyword in ipairs(flatKeywords(photo, true)) do
+    add(keyword)
+  end
+  addReplacementTag(tags, photo, settings)
+
+  if #tags == 0 then
+    return nil
+  end
+
+  return wrap({ array("digiKam:TagsList", "rdf:Seq", tags) })
 end
 
 --- Writes a sidecar to a file.
