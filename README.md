@@ -16,7 +16,7 @@ how many collections it is published in, and is added to the album for each of t
 
 The plugin works with both Noodle Gallery and Immich. It only uses features Immich also has, apart from
 Noodle Gallery's shared spaces, which it handles where present and skips on Immich. It has only been
-tested with Noodle Gallery so far. If you use it with Immich, please report any problems.
+full tested with Noodle Gallery so far. If you use it with Immich, please report any problems.
 
 ## Installation
 
@@ -134,8 +134,8 @@ available:
 
 - `mise r setup` installs luacheck and busted.
 - `mise r test` runs the tests.
-- `mise r integration` runs the integration tests against a Noodle Gallery server it starts in Docker. It
-  needs Docker and curl.
+- `mise r integration:noodle` and `mise r integration:immich` run the integration tests against a Noodle
+  Gallery or Immich server they start in Docker. `mise r integration` runs both. They need Docker and curl.
 - `mise r stylua`, `mise r luacheck` and `mise r typecheck` format, lint and type check the plugin.
 - `mise r package` runs the checks and builds `LrNoodle.zip` for distribution.
 

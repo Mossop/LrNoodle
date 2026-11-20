@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Runs the integration tests against a throwaway server in docker. The first
+# argument picks the server, immich or noodle. Any others are passed to busted.
+set -e
+
+root="${MISE_CONFIG_ROOT:-$(pwd)}"
+server="$1"
+shift
+
+case "$server" in
+  noodle)
+    export SERVER_IMAGE="ghcr.io/open-noodle/gallery-server:${NOODLE_VERSION:-v5.11.0}"
+    export SERVER_PORT="${NOODLE_PORT:-2284}"
+    ;;
+  immich)
+    export SERVER_IMAGE="ghcr.io/immich-app/immich-server:${IMMICH_VERSION:-v3.4.1}"
+    export SERVER_PORT="${IMMICH_PORT:-2285}"
+    ;;
+  *)
+    echo "Usage: $0 immich|noodle [busted arguments]" >&2
+    exit 1
+    ;;
+esac
+
+export INTEGRATION_SERVER="$server"
+export SERVER_URL="http://localhost:$SERVER_PORT"
+
+compose=(docker compose --project-name "lrnoodle-integration-$server" --file "$root/tests/integration/docker-compose.yml")
+
+"${compose[@]}" up --detach --wait --wait-timeout 300
+trap '"${compose[@]}" down --volumes' EXIT
+
+(cd "$root" && busted --run=integration "$@")

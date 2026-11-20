@@ -4,6 +4,10 @@ local catalog = require("lr_catalog")
 local Provider = require("Provider")
 local Utils = require("Utils")
 
+-- Defines a test that only runs against Noodle Gallery, e.g. for shared spaces.
+-- It is reported as pending against Immich.
+local noodleOnly = server.isNoodle and it or pending
+
 describe("Provider against a real server", function()
   -- Uses the API key with only the permissions the plugin needs.
   ---@type API
@@ -310,7 +314,7 @@ describe("Provider against a real server", function()
       assert.same(sorted({ firstCollection.remoteId, secondCollection.remoteId }), albumsFor(id))
     end)
 
-    it("adds a replacement to the shared spaces the old asset was in", function()
+    noodleOnly("adds a replacement to the shared spaces the old asset was in", function()
       local photo = catalog.newPhoto(1)
       local published = catalog.newPublishedPhoto(photo)
       local collection = catalog.newCollection(1, "Holiday", nil, { published })
@@ -380,7 +384,12 @@ describe("Provider against a real server", function()
       for _, tag in ipairs(asset.tags or {}) do
         table.insert(tags, tag.value)
       end
-      assert.same(sorted({ "France", "Paris", "Places", "Places/France/Paris" }), sorted(tags))
+      if server.isNoodle then
+        assert.same(sorted({ "France", "Paris", "Places", "Places/France/Paris" }), sorted(tags))
+      else
+        -- Immich ignores Keywords when there is a HierarchicalSubject.
+        assert.same({ "Places/France/Paris" }, tags)
+      end
     end)
   end)
 
@@ -556,7 +565,7 @@ describe("Provider against a real server", function()
       assert.is_false(isTrashed(id))
     end)
 
-    it("keeps the asset of a photo in a shared space", function()
+    noodleOnly("keeps the asset of a photo in a shared space", function()
       local published = catalog.newPublishedPhoto(catalog.newPhoto(1))
       local collection = catalog.newCollection(1, "Holiday", nil, { published })
       catalog.newService({ collection })

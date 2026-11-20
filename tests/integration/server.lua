@@ -1,5 +1,6 @@
--- Sets up the test server started by `mise r integration`: creates the admin
--- user and an API key, then hands out API instances using that key.
+-- Sets up the test server started by `mise r integration:noodle` or
+-- `mise r integration:immich`: creates the admin user and an API key, then
+-- hands out API instances using that key.
 
 local lr = require("lr_stubs")
 local http = require("curl_http")
@@ -7,7 +8,10 @@ local json = require("json")
 
 local M = {}
 
-M.url = os.getenv("NOODLE_URL") or "http://localhost:2284"
+-- Whether the server is Noodle Gallery rather than plain Immich.
+M.isNoodle = (os.getenv("INTEGRATION_SERVER") or "noodle") == "noodle"
+
+M.url = os.getenv("SERVER_URL") or "http://localhost:2284"
 M.email = "admin@example.com"
 M.password = "password"
 
@@ -36,8 +40,11 @@ M.permissions = {
   "albumAsset.create",
   "albumAsset.delete",
   "user.read",
-  "sharedSpaceAsset.create",
 }
+-- Immich rejects permissions it doesn't know.
+if M.isNoodle then
+  table.insert(M.permissions, "sharedSpaceAsset.create")
+end
 
 -- The key the plugin's API calls use, with only M.permissions.
 ---@type string?
@@ -63,7 +70,7 @@ local function post(path, body, token)
 
   local response, responseHeaders = http.post(M.url .. "/api" .. path, json.encode(body), headers)
   if not responseHeaders.status then
-    error("Cannot reach the test server at " .. M.url .. ". Run the tests with `mise r integration`.")
+    error("Cannot reach the test server at " .. M.url .. ". Run the tests with `mise r integration:noodle` or `mise r integration:immich`.")
   end
 
   local decoded = nil

@@ -30,12 +30,19 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y lua5.1 lua-busted
       - run: busted
 
-  integration:
+  integration-noodle:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y lua5.1 lua-busted
-      - run: MISE_CONFIG_ROOT="$GITHUB_WORKSPACE" ./mise-tasks/integration
+      - run: MISE_CONFIG_ROOT="$GITHUB_WORKSPACE" ./tests/integration/run noodle
+
+  integration-immich:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y lua5.1 lua-busted
+      - run: MISE_CONFIG_ROOT="$GITHUB_WORKSPACE" ./tests/integration/run immich
 
   typecheck:
     runs-on: ubuntu-latest

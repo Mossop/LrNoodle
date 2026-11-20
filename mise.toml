@@ -25,6 +25,20 @@ wait_for = ["stylua"]
 description = "Format the plugin with StyLua"
 run = "stylua LrNoodle.lrdevplugin"
 
+[tasks."integration:noodle"]
+description = "Runs the integration tests against a Noodle Gallery server in docker"
+run = "tests/integration/run noodle"
+
+[tasks."integration:immich"]
+description = "Runs the integration tests against an Immich server in docker"
+run = "tests/integration/run immich"
+# Two servers at once can run out of memory in Docker.
+wait_for = ["integration:noodle"]
+
+[tasks.integration]
+description = "Runs the integration tests against Noodle Gallery and Immich"
+depends = ["integration:noodle", "integration:immich"]
+
 [tasks.package]
 description = "Checks and packages the plugin"
 depends = ["stylua", "luacheck", "typecheck", "build"]

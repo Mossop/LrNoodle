@@ -10,6 +10,10 @@ local dates = { created = 0, modified = 90000 }
 -- An ID that no asset or album has.
 local MISSING_ID = "00000000-0000-4000-8000-000000000000"
 
+-- Defines a test that only runs against Noodle Gallery, e.g. for shared spaces.
+-- It is reported as pending against Immich.
+local noodleOnly = server.isNoodle and it or pending
+
 describe("API against a real server", function()
   -- Uses the API key with only the permissions the plugin needs.
   ---@type API
@@ -396,7 +400,7 @@ describe("API against a real server", function()
       assert.same({}, ok(api:getAssetSpaces({ id })))
     end)
 
-    it("reports spaces assets were added to", function()
+    noodleOnly("reports spaces assets were added to", function()
       local first = upload()
       local second = upload()
       local space = createSpace("Direct")
@@ -406,7 +410,7 @@ describe("API against a real server", function()
       assert.same({ [first] = { space } }, ok(api:getAssetSpaces({ first, second })))
     end)
 
-    it("reports spaces showing assets through a linked album", function()
+    noodleOnly("reports spaces showing assets through a linked album", function()
       local id = upload()
       local direct = createSpace("Direct")
       local linked = createSpace("Linked")
