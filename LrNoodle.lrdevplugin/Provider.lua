@@ -521,14 +521,18 @@ local function uploadRendition(api, rendition, plan, path, settings, tracker)
         return Utils.error(copied)
       end
 
-      local spaces = copySpaces(api, photoId, plan.assetId, result.id)
-      if Utils.isError(spaces) then
-        logger:debug("Photo", photoId, "failed to copy shared spaces", plan.assetId, Utils.errorString(spaces))
-        return Utils.error(spaces)
-      end
+      if Utils.result(copied) then
+        local spaces = copySpaces(api, photoId, plan.assetId, result.id)
+        if Utils.isError(spaces) then
+          logger:debug("Photo", photoId, "failed to copy shared spaces", plan.assetId, Utils.errorString(spaces))
+          return Utils.error(spaces)
+        end
 
-      logger:debug("Photo", photoId, "replaced asset", plan.assetId, "with", result.id)
-      uploadedRendition.replacedId = plan.assetId
+        logger:debug("Photo", photoId, "replaced asset", plan.assetId, "with", result.id)
+        uploadedRendition.replacedId = plan.assetId
+      else
+        logger:debug("Photo", photoId, "asset to replace", plan.assetId, "no longer exists, nothing copied")
+      end
     end
   end
 
@@ -801,7 +805,7 @@ local function finishPublish(api, photoId, result, assetExists, updates, albums,
 
   if #toDelete > 0 then
     logger:debug("Photo", photoId, "permanently deleting stale assets", table.concat(toDelete, ", "))
-    local deleted = api:deleteAssets(toDelete, true)
+    local deleted = api:deleteAssetsIfExists(toDelete, true)
     if Utils.isError(deleted) then
       logger:warn("Photo", photoId, "failed to delete stale assets", Utils.errorString(deleted))
     else
@@ -1101,7 +1105,7 @@ local function deleteOrphanedAssets(api, publishService, collection, assetIds)
   end
 
   logger:debug("Moving orphaned assets to the trash", table.concat(orphans, ", "))
-  return api:deleteAssets(orphans)
+  return api:deleteAssetsIfExists(orphans)
 end
 
 ---@param publishSettings PublishSettings

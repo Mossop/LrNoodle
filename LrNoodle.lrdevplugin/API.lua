@@ -254,19 +254,49 @@ function API:deleteAssets(ids, force)
   return self:request("DELETE", "/assets", { ids = ids, force = force or false })
 end
 
+--- Like deleteAssets but ignores assets that are already gone from the server.
+---@param ids string[]
+---@param force boolean? Delete permanently instead of moving to the trash.
+---@return true | Error
+function API:deleteAssetsIfExists(ids, force)
+  local deleted = self:deleteAssets(ids, force)
+  if not (Utils.isError(deleted) and Utils.error(deleted).code == "notFound") then
+    return deleted
+  end
+
+  -- The server rejects the whole request if any of the assets is already gone.
+  ---@type string[]
+  local existing = {}
+  for _, id in ipairs(ids) do
+    local exists = self:assetExists(id)
+    if Utils.isError(exists) then
+      return Utils.error(exists)
+    end
+    if exists then
+      table.insert(existing, id)
+    end
+  end
+
+  if #existing == 0 then
+    return true
+  end
+
+  return self:deleteAssets(existing, force)
+end
+
 --- Since the server cannot change an asset's file, a changed file is uploaded
 --- as a new asset. This copies everything from the asset being replaced to the
 --- new one. Nothing is copied if the old asset no longer exists. The caller is
 --- responsible for deleting the old asset, and the new one if this fails.
 ---@param oldId string
 ---@param newId string
----@return true | Error
+---@return boolean | Error # False if the old asset no longer exists.
 function API:copyFromAsset(oldId, newId)
   local old = self:getAsset(oldId)
   if Utils.isError(old) then
     if Utils.error(old).code == "notFound" then
       logger:info("Asset to replace no longer exists", oldId)
-      return true
+      return false
     end
 
     return Utils.error(old)

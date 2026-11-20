@@ -142,6 +142,31 @@ describe("API against a real server", function()
       ok(api:deleteAssets({ id }, true))
       server.waitUntilDeleted(api, id)
     end)
+
+    it("rejects the whole request when an asset is missing", function()
+      local id = upload()
+
+      fails("notFound", api:deleteAssets({ id, MISSING_ID }))
+      assert.is_false(ok(api:getAsset(id)).isTrashed)
+    end)
+
+    it("trashes only the assets that exist", function()
+      local id = upload()
+
+      assert.is_true(ok(api:deleteAssetsIfExists({ id, MISSING_ID })))
+      assert.is_true(ok(api:getAsset(id)).isTrashed)
+    end)
+
+    it("permanently deletes only the assets that exist when forced", function()
+      local id = upload()
+
+      assert.is_true(ok(api:deleteAssetsIfExists({ id, MISSING_ID }, true)))
+      server.waitUntilDeleted(api, id)
+    end)
+
+    it("succeeds when every asset is missing", function()
+      assert.is_true(ok(api:deleteAssetsIfExists({ MISSING_ID })))
+    end)
   end)
 
   -- After a replacement the asset's metadata should match Lightroom's as
@@ -308,7 +333,7 @@ describe("API against a real server", function()
 
     it("does nothing when the old asset is missing", function()
       local new = upload()
-      assert.is_true(ok(api:copyFromAsset(MISSING_ID, new)))
+      assert.is_false(ok(api:copyFromAsset(MISSING_ID, new)))
     end)
   end)
 

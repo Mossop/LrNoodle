@@ -365,6 +365,60 @@ describe("API", function()
     assert.are.equal("https://gallery.example.com/api/albums?assetId=asset", request(1).url)
   end)
 
+  describe("deleteAssetsIfExists", function()
+    it("deletes the assets in one request", function()
+      lr.respond({ status = 204 })
+
+      assert.is_true(newApi():deleteAssetsIfExists({ "a", "b" }, true))
+
+      assert.are.equal(1, #lr.http.requests)
+      assert.are.same({ ids = { "a", "b" }, force = true }, body(1))
+    end)
+
+    it("deletes only the assets that still exist when some are gone", function()
+      lr.respondJson(400, { message = "Not found or no asset.delete access" })
+      lr.respond({ status = 404 })
+      lr.respondJson(200, { id = "b" })
+      lr.respond({ status = 204 })
+
+      assert.is_true(newApi():deleteAssetsIfExists({ "a", "b" }, true))
+
+      assert.are.equal(4, #lr.http.requests)
+      assert.are.equal("https://gallery.example.com/api/assets/a", request(2).url)
+      assert.are.equal("https://gallery.example.com/api/assets/b", request(3).url)
+      assert.are.same({ ids = { "b" }, force = true }, body(4))
+    end)
+
+    it("succeeds when every asset is gone", function()
+      lr.respondJson(400, { message = "Not found or no asset.delete access" })
+      lr.respond({ status = 404 })
+
+      assert.is_true(newApi():deleteAssetsIfExists({ "a" }))
+      assert.are.equal(2, #lr.http.requests)
+    end)
+
+    it("returns errors checking the assets", function()
+      lr.respondJson(400, { message = "Not found or no asset.delete access" })
+      lr.respond({ status = 500 })
+
+      local result = newApi():deleteAssetsIfExists({ "a" })
+
+      assert.is_true(Utils.isError(result))
+      assert.are.equal("serverError", Utils.error(result).code)
+      assert.are.equal(2, #lr.http.requests)
+    end)
+
+    it("returns other delete failures", function()
+      lr.respond({ status = 500 })
+
+      local result = newApi():deleteAssetsIfExists({ "a" })
+
+      assert.is_true(Utils.isError(result))
+      assert.are.equal("serverError", Utils.error(result).code)
+      assert.are.equal(1, #lr.http.requests)
+    end)
+  end)
+
   describe("copyFromAsset", function()
     it("copies everything except the sidecar from the old asset", function()
       lr.respondJson(200, { id = "old" })
@@ -413,7 +467,7 @@ describe("API", function()
     it("skips the copy when the old asset is gone", function()
       lr.respond({ status = 404 })
 
-      assert.is_true(newApi():copyFromAsset("old", "new"))
+      assert.is_false(newApi():copyFromAsset("old", "new"))
       assert.are.equal(1, #lr.http.requests)
     end)
 

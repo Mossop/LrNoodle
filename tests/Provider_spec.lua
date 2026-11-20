@@ -1446,6 +1446,40 @@ describe("Provider", function()
       assert.are.same({ ids = { "old" }, force = true }, requestBody(8))
     end)
 
+    it("doesn't delete an asset to replace that is gone before copying", function()
+      local collection = newCollection(10, "Holiday", "album")
+      local rendition = newRendition(newPhoto(1), "old")
+      local exportContext = newExportContext(newService({ collection }), collection, { rendition })
+
+      albumExists()
+      lr.respondJson(200, { id = "old", isTrashed = false })
+      lr.respondJson(201, { id = "new", status = "created" })
+      lr.respond({ status = 404 })
+      lr.respondJson(200, { { id = "new", success = true } })
+      -- Planning saw the old asset, so it is treated as stale.
+      noSpaces()
+      lr.respondJson(200, {})
+      lr.respondJson(400, { message = "Not found or no asset.delete access" })
+      lr.respond({ status = 404 })
+
+      publish(exportContext)
+
+      assert.are.same({
+        "GET /albums/album",
+        "GET /assets/old",
+        "MULTIPART /assets",
+        "GET /assets/old",
+        "PUT /albums/album/assets",
+        "POST /assets/spaces",
+        "GET /albums?assetId=old",
+        "DELETE /assets",
+        "GET /assets/old",
+      }, calls())
+      assert.are.equal("new", rendition.recordedId)
+      assert.is_nil(rendition.failure)
+      assert.is_falsy(lr.logged("failed to delete stale assets"))
+    end)
+
     it("logs the decision made for each photo", function()
       local first = newPhoto(1)
       local second = newPhoto(2)
@@ -1681,6 +1715,54 @@ describe("Provider", function()
       end, 10)
 
       assert.are.equal("DELETE /assets", calls()[4])
+      assert.are.same({ "orphanAsset" }, deleted)
+    end)
+
+    it("ignores assets already gone from the server", function()
+      local third = newPhoto(3)
+      table.insert(collection.publishedPhotos, newPublishedPhoto(third, "otherOrphan"))
+
+      lr.respondJson(200, { { id = "orphanAsset", success = true }, { id = "otherOrphan", success = true } })
+      noSpaces()
+      lr.respondJson(200, {})
+      lr.respondJson(200, {})
+      lr.respondJson(400, { message = "Not found or no asset.delete access" })
+      lr.respondJson(400, { message = "Not found or no asset.read access" })
+      lr.respondJson(200, { id = "otherOrphan" })
+      lr.respond({ status = 204 })
+
+      local deleted = {}
+      Provider.deletePhotosFromPublishedCollection(settings, { "orphanAsset", "otherOrphan" }, function(id)
+        table.insert(deleted, id)
+      end, 10)
+
+      assert.are.same({
+        "DELETE /albums/album/assets",
+        "POST /assets/spaces",
+        "GET /albums?assetId=orphanAsset",
+        "GET /albums?assetId=otherOrphan",
+        "DELETE /assets",
+        "GET /assets/orphanAsset",
+        "GET /assets/otherOrphan",
+        "DELETE /assets",
+      }, calls())
+      assert.are.same({ ids = { "otherOrphan" }, force = false }, requestBody(8))
+      assert.are.same({ "orphanAsset", "otherOrphan" }, deleted)
+    end)
+
+    it("succeeds when every orphaned asset is already gone from the server", function()
+      lr.respondJson(200, { { id = "orphanAsset", success = true } })
+      noSpaces()
+      lr.respondJson(200, {})
+      lr.respondJson(400, { message = "Not found or no asset.delete access" })
+      lr.respond({ status = 404 })
+
+      local deleted = {}
+      Provider.deletePhotosFromPublishedCollection(settings, { "orphanAsset" }, function(id)
+        table.insert(deleted, id)
+      end, 10)
+
+      assert.are.equal(5, #lr.http.requests)
       assert.are.same({ "orphanAsset" }, deleted)
     end)
 
