@@ -103,7 +103,7 @@ describe("API against a real server", function()
     it("reports a missing asset as not found", function()
       fails("notFound", api:getAsset(MISSING_ID))
       assert.is_false(ok(api:assetExists(MISSING_ID)))
-      assert.is_false(ok(api:ensureAsset(MISSING_ID)))
+      assert.is_false(ok(api:findAsset(MISSING_ID)))
     end)
 
     it("reports a missing album as not found", function()
@@ -126,9 +126,9 @@ describe("API against a real server", function()
       ok(api:deleteAssets({ id }))
       assert.is_true(ok(api:getAsset(id)).isTrashed)
       assert.is_true(ok(api:assetExists(id)))
-      assert.is_true(ok(api:getAsset(id)).isTrashed)
+      assert.is_true(ok(api:findAsset(id)).isTrashed)
 
-      assert.is_true(ok(api:ensureAsset(id)))
+      ok(api:restoreAssets({ id }))
       assert.is_false(ok(api:getAsset(id)).isTrashed)
     end)
 
@@ -314,7 +314,7 @@ describe("API against a real server", function()
         formatted = { caption = "From Lightroom", keywordTagsForExport = "Paris" },
       }, lightroom)
 
-      assert.is_true(ok(api:copyFromAsset(old, new)))
+      assert.is_true(ok(api:copyFromAsset(ok(api:getAsset(old)), new)))
 
       assertDetails(with(lightroom, { isFavorite = true, visibility = "archive", albums = { album } }), new)
     end)
@@ -330,14 +330,20 @@ describe("API against a real server", function()
       }
       local new = lightroomAsset({ dateTimeOriginal = 90000 }, lightroom)
 
-      assert.is_true(ok(api:copyFromAsset(old, new)))
+      assert.is_true(ok(api:copyFromAsset(ok(api:getAsset(old)), new)))
 
       assertDetails(with(lightroom, { isFavorite = true, visibility = "archive", albums = { album } }), new)
     end)
 
-    it("does nothing when the old asset is missing", function()
-      local new = upload()
-      assert.is_false(ok(api:copyFromAsset(MISSING_ID, new)))
+    it("copies from an asset in the trash", function()
+      local old, album = galleryAsset()
+      ok(api:deleteAssets({ old }))
+      local lightroom = { description = "", dateTimeOriginal = "2001-01-02T01:00:00+00:00", tags = {} }
+      local new = lightroomAsset({ dateTimeOriginal = 90000 }, lightroom)
+
+      assert.is_true(ok(api:copyFromAsset(ok(api:getAsset(old)), new)))
+
+      assertDetails(with(lightroom, { isFavorite = true, visibility = "archive", albums = { album } }), new)
     end)
   end)
 

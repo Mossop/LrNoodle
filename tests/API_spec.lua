@@ -256,48 +256,33 @@ describe("API", function()
     end)
   end)
 
-  describe("ensureAsset", function()
-    it("reports existing assets", function()
-      lr.respondJson(200, { id = "a", isTrashed = false })
-
-      assert.is_true(newApi():ensureAsset("a"))
-      assert.are.equal(1, #lr.http.requests)
-    end)
-
-    it("restores trashed assets", function()
+  describe("findAsset", function()
+    it("returns assets, including those in the trash, without restoring them", function()
       lr.respondJson(200, { id = "a", isTrashed = true })
-      lr.respond({ status = 204 })
 
-      assert.is_true(newApi():ensureAsset("a"))
-      assert.are.equal("https://gallery.example.com/api/trash/restore/assets", request(2).url)
-      assert.are.same({ ids = { "a" } }, body(2))
+      assert.are.same({ id = "a", isTrashed = true }, newApi():findAsset("a"))
+      assert.are.equal(1, #lr.http.requests)
+      assert.are.equal("https://gallery.example.com/api/assets/a", request(1).url)
     end)
 
     it("reports missing assets", function()
       lr.respond({ status = 404 })
 
-      assert.is_false(newApi():ensureAsset("a"))
+      assert.is_false(newApi():findAsset("a"))
     end)
 
     it("reports deleted assets the server rejects as a bad request", function()
       lr.respond({ status = 400, body = json.encode({ message = "Not found or no asset.read access" }) })
 
-      assert.is_false(newApi():ensureAsset("a"))
+      assert.is_false(newApi():findAsset("a"))
     end)
 
     it("returns other errors", function()
       lr.respond({ status = 500 })
 
-      local result = newApi():ensureAsset("a")
+      local result = newApi():findAsset("a")
       assert.is_true(Utils.isError(result))
       assert.are.equal("serverError", Utils.error(result).code)
-    end)
-
-    it("returns restore errors", function()
-      lr.respondJson(200, { id = "a", isTrashed = true })
-      lr.respond({ status = 500 })
-
-      assert.is_true(Utils.isError(newApi():ensureAsset("a")))
     end)
   end)
 
@@ -332,6 +317,15 @@ describe("API", function()
       lr.respond({ status = 404 })
 
       assert.are.same({}, newApi():getAssetSpaces({ "a" }))
+    end)
+
+    it("only asks once when the server doesn't support them", function()
+      lr.respond({ status = 404 })
+
+      local api = newApi()
+      assert.are.same({}, api:getAssetSpaces({ "a" }))
+      assert.are.same({}, api:getAssetSpaces({ "b" }))
+      assert.are.equal(1, #lr.http.requests)
     end)
 
     it("returns other errors", function()
@@ -421,74 +415,52 @@ describe("API", function()
 
   describe("copyFromAsset", function()
     it("copies everything except the sidecar from the old asset", function()
-      lr.respondJson(200, { id = "old" })
       lr.respond({ status = 204 })
 
-      assert.is_true(newApi():copyFromAsset("old", "new"))
+      assert.is_true(newApi():copyFromAsset({ id = "old", isTrashed = false }, "new"))
 
-      assert.are.equal(2, #lr.http.requests)
-      assert.are.equal("https://gallery.example.com/api/assets/old", request(1).url)
-      assert.are.equal("https://gallery.example.com/api/assets/copy", request(2).url)
-      assert.are.same({ sourceId = "old", targetId = "new", sidecar = false }, body(2))
+      assert.are.equal(1, #lr.http.requests)
+      assert.are.equal("https://gallery.example.com/api/assets/copy", request(1).url)
+      assert.are.same({ sourceId = "old", targetId = "new", sidecar = false }, body(1))
     end)
 
     it("copies the visibility, which the copy leaves out", function()
-      lr.respondJson(200, { id = "old", visibility = "archive" })
       lr.respond({ status = 204 })
       lr.respond({ status = 204 })
 
-      assert.is_true(newApi():copyFromAsset("old", "new"))
+      assert.is_true(newApi():copyFromAsset({ id = "old", isTrashed = false, visibility = "archive" }, "new"))
 
-      assert.are.equal(3, #lr.http.requests)
-      assert.are.equal("PUT", request(3).method)
-      assert.are.equal("https://gallery.example.com/api/assets", request(3).url)
-      assert.are.same({ ids = { "new" }, visibility = "archive" }, body(3))
+      assert.are.equal(2, #lr.http.requests)
+      assert.are.equal("PUT", request(2).method)
+      assert.are.equal("https://gallery.example.com/api/assets", request(2).url)
+      assert.are.same({ ids = { "new" }, visibility = "archive" }, body(2))
     end)
 
     it("leaves a new asset on the timeline", function()
-      lr.respondJson(200, { id = "old", visibility = "timeline" })
       lr.respond({ status = 204 })
 
-      assert.is_true(newApi():copyFromAsset("old", "new"))
-      assert.are.equal(2, #lr.http.requests)
-    end)
-
-    it("returns failures copying the visibility", function()
-      lr.respondJson(200, { id = "old", visibility = "locked" })
-      lr.respond({ status = 204 })
-      lr.respond({ status = 403 })
-
-      local result = newApi():copyFromAsset("old", "new")
-
-      assert.is_true(Utils.isError(result))
-      assert.are.equal("badApiKey", Utils.error(result).code)
-    end)
-
-    it("skips the copy when the old asset is gone", function()
-      lr.respond({ status = 404 })
-
-      assert.is_false(newApi():copyFromAsset("old", "new"))
+      assert.is_true(newApi():copyFromAsset({ id = "old", isTrashed = false, visibility = "timeline" }, "new"))
       assert.are.equal(1, #lr.http.requests)
     end)
 
-    it("returns copy failures without deleting anything", function()
-      lr.respondJson(200, { id = "old" })
-      lr.respond({ status = 500 })
+    it("returns failures copying the visibility", function()
+      lr.respond({ status = 204 })
+      lr.respond({ status = 403 })
 
-      local result = newApi():copyFromAsset("old", "new")
-
-      assert.is_true(Utils.isError(result))
-      assert.are.equal("serverError", Utils.error(result).code)
-      assert.are.equal(2, #lr.http.requests)
-    end)
-
-    it("returns errors checking the old asset", function()
-      lr.respond({ status = 401 })
-
-      local result = newApi():copyFromAsset("old", "new")
+      local result = newApi():copyFromAsset({ id = "old", isTrashed = false, visibility = "locked" }, "new")
 
       assert.is_true(Utils.isError(result))
       assert.are.equal("badApiKey", Utils.error(result).code)
+    end)
+
+    it("returns copy failures without deleting anything", function()
+      lr.respond({ status = 500 })
+
+      local result = newApi():copyFromAsset({ id = "old", isTrashed = false }, "new")
+
+      assert.is_true(Utils.isError(result))
+      assert.are.equal("serverError", Utils.error(result).code)
+      assert.are.equal(1, #lr.http.requests)
     end)
   end)
 end)

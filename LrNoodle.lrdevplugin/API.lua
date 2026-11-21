@@ -19,6 +19,7 @@ local UPLOAD_TIMEOUT = 300
 ---@field private baseUrl string
 ---@field private apiUrl string
 ---@field private apiKey string
+---@field private spacesUnsupported boolean? Set once the server has shown it has no shared spaces.
 local API = {}
 
 ---@param body string?
@@ -145,39 +146,10 @@ function API:getAsset(id)
   return self:request("GET", "/assets/" .. id)
 end
 
---- Checks that an asset exists on the server, restoring it from the trash if
---- necessary.
+--- Gets an asset, including one in the trash.
 ---@param id string
----@return boolean | Error # False if the asset does not exist.
-function API:ensureAsset(id)
-  local asset = self:getAsset(id)
-  if Utils.isError(asset) then
-    if Utils.error(asset).code == "notFound" then
-      logger:debug("Asset", id, "does not exist")
-      return false
-    end
-
-    return Utils.error(asset)
-  end
-
-  if Utils.result(asset).isTrashed then
-    logger:info("Restoring asset from the trash", id)
-    local restored = self:restoreAssets({ id })
-    if Utils.isError(restored) then
-      return Utils.error(restored)
-    end
-  else
-    logger:debug("Asset", id, "exists")
-  end
-
-  return true
-end
-
---- Checks whether an asset exists on the server, including in the trash,
---- without restoring it.
----@param id string
----@return boolean | Error
-function API:assetExists(id)
+---@return Asset | false | Error # False if the asset does not exist.
+function API:findAsset(id)
   local asset = self:getAsset(id)
   if Utils.isError(asset) then
     if Utils.error(asset).code == "notFound" then
@@ -189,7 +161,20 @@ function API:assetExists(id)
   end
 
   logger:debug("Asset", id, Utils.result(asset).isTrashed and "is in the trash" or "exists")
-  return true
+  return Utils.result(asset)
+end
+
+--- Checks whether an asset exists on the server, including in the trash,
+--- without restoring it.
+---@param id string
+---@return boolean | Error
+function API:assetExists(id)
+  local asset = self:findAsset(id)
+  if Utils.isError(asset) then
+    return Utils.error(asset)
+  end
+
+  return asset ~= false
 end
 
 ---@param ids string[]
@@ -286,21 +271,13 @@ end
 
 --- Since the server cannot change an asset's file, a changed file is uploaded
 --- as a new asset. This copies everything from the asset being replaced to the
---- new one. Nothing is copied if the old asset no longer exists. The caller is
---- responsible for deleting the old asset, and the new one if this fails.
----@param oldId string
+--- new one. The caller is responsible for deleting the old asset, and the new
+--- one if this fails.
+---@param old Asset The asset being replaced, as fetched from the server.
 ---@param newId string
----@return boolean | Error # False if the old asset no longer exists.
-function API:copyFromAsset(oldId, newId)
-  local old = self:getAsset(oldId)
-  if Utils.isError(old) then
-    if Utils.error(old).code == "notFound" then
-      logger:info("Asset to replace no longer exists", oldId)
-      return false
-    end
-
-    return Utils.error(old)
-  end
+---@return true | Error
+function API:copyFromAsset(old, newId)
+  local oldId = old.id
 
   logger:debug("Copying asset", oldId, "to", newId)
   local copied = self:copyAsset(oldId, newId)
@@ -311,7 +288,7 @@ function API:copyFromAsset(oldId, newId)
 
   -- The copy doesn't include the visibility, which only the gallery sets. A
   -- new asset is on the timeline.
-  local visibility = Utils.result(old).visibility
+  local visibility = old.visibility
   if visibility and visibility ~= "timeline" then
     logger:debug("Setting visibility of asset", newId, "to", visibility)
     local updated = self:request("PUT", "/assets", { ids = { newId }, visibility = visibility })
@@ -348,6 +325,10 @@ function API:getAssetSpaces(assetIds)
   ---@type { [string]: string[] }
   local spaces = {}
 
+  if self.spacesUnsupported then
+    return spaces
+  end
+
   for first = 1, #assetIds, SPACES_BATCH do
     ---@type string[]
     local batch = {}
@@ -359,6 +340,7 @@ function API:getAssetSpaces(assetIds)
     if Utils.isError(result) then
       if Utils.error(result).code == "notFound" then
         logger:debug("Server doesn't support shared spaces")
+        self.spacesUnsupported = true
         return {}
       end
       return Utils.error(result)

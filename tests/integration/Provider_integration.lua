@@ -314,6 +314,29 @@ describe("Provider against a real server", function()
       assert.same(sorted({ firstCollection.remoteId, secondCollection.remoteId }), albumsFor(id))
     end)
 
+    it("replaces a trashed asset without restoring it, keeping its details", function()
+      local photo = catalog.newPhoto(1)
+      local published = catalog.newPublishedPhoto(photo)
+      local collection = catalog.newCollection(1, "Holiday", nil, { published })
+      local service = catalog.newService({ collection })
+
+      publish(service, collection)
+      local oldId = published.remoteId
+      ok(setup:request("PUT", "/assets", { ids = { oldId }, isFavorite = true }))
+      ok(setup:deleteAssets({ oldId }))
+      assert.is_true(isTrashed(oldId))
+
+      catalog.editPhoto(service, photo)
+      publish(service, collection)
+
+      local newId = published.remoteId
+      assert.not_equals(oldId, newId)
+      assert.is_false(isTrashed(newId))
+      assert.is_true(ok(api:getAsset(newId)).isFavorite)
+      assert.same({ collection.remoteId }, albumsFor(newId))
+      server.waitUntilDeleted(api, oldId)
+    end)
+
     noodleOnly("adds a replacement to the shared spaces the old asset was in", function()
       local photo = catalog.newPhoto(1)
       local published = catalog.newPublishedPhoto(photo)

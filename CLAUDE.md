@@ -64,10 +64,12 @@ LuaLS warnings about busted globals in `tests/` are expected and can be ignored.
 - A photo's asset ID is stored as the `LrPublishedPhoto` remote ID in each collection. There is no separate
   storage, so the existing asset for a photo is found by looking at its copies in the service's other
   collections.
-- Planning a photo checks candidate assets on the server (restoring trashed ones), in this order:
-  1. An unedited copy elsewhere: reuse its asset without uploading.
-  2. This collection's ID, then the other copies' IDs: replace the first that exists.
-  3. Otherwise upload a new asset.
+- Each asset is fetched at most once per publish (`assetChecker`), and the fetched asset is reused, e.g. for
+  its visibility when copying.
+- Before rendering, planning only checks an unedited copy elsewhere, restoring it from the trash: if it
+  exists its asset is reused without uploading. Otherwise the photo is uploaded, and after the upload the
+  candidates (this collection's ID, then the other copies' IDs) are checked in order and the first that exists,
+  even in the trash, is replaced. Trashed candidates aren't restored since they are permanently deleted.
 - A replacement uploads a new asset, then copies the old asset's details to it with `copyFromAsset`. The
   copy doesn't include shared spaces, so `copySpaces` adds the new asset to any space that showed the old
   asset but doesn't show the new one (spaces linked to albums already show it, since albums are copied).
@@ -78,8 +80,10 @@ LuaLS warnings about busted globals in `tests/` are expected and can be ignored.
   has (albums, favourite, shared links, stack, visibility, shared spaces) are copied from the old asset.
 - `publishAndRecord` protects everything from the upload until `recordPublishedPhotoId`. If anything fails,
   including exceptions and cancellation, an asset created by the upload is permanently deleted.
-- Only after the new ID is recorded does `finishPublish` clean up the assets previously used for the photo.
-  It also queues updates pointing the other copies at the new asset and marking them edited.
+- Only after the new ID is recorded does `finishPublish` queue the assets previously used for the photo for
+  deletion. It also queues updates pointing the other copies at the new asset and marking them edited. The
+  queued assets are checked and deleted together by `cleanUp` once every photo is published, or once
+  publishing ends if it is interrupted.
   - The replaced asset (only set when the upload created an asset and its details were copied) is always
     permanently deleted.
   - Every other previously seen ID (this collection's old ID, the other copies' IDs, or the previous asset
@@ -87,7 +91,7 @@ LuaLS warnings about busted globals in `tests/` are expected and can be ignored.
     it in a shared space or an album that isn't published from one of the service's collections.
   - When one of these other IDs is deleted, every published photo in the service still referencing it
     (e.g. an identical virtual copy matched as a duplicate) is marked edited so it is republished. The
-    photo being published is skipped.
+    photos it was previously used for are skipped.
   - The replaced asset could also be another photo's asset; that case is accepted and not handled.
 - Catalog updates are batched and applied in one write transaction when publishing ends, even if it is
   interrupted.
@@ -101,7 +105,8 @@ LuaLS warnings about busted globals in `tests/` are expected and can be ignored.
 
 The plugin must keep working with plain Immich, though it has only been tested with Noodle Gallery. Noodle
 only endpoints (currently just shared spaces: `POST /assets/spaces`, `POST /shared-spaces/{id}/assets`)
-must degrade gracefully: Immich returns 404 for them, which `getAssetSpaces` treats as no spaces.
+must degrade gracefully: Immich returns 404 for them, which `getAssetSpaces` treats as no spaces and
+remembers so it doesn't ask again.
 
 ## User decisions to respect
 

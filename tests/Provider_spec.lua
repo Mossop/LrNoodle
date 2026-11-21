@@ -443,9 +443,8 @@ describe("Provider", function()
         local exportContext = contextFor(rendition, {})
 
         albumExists()
-        lr.respondJson(200, { id = "old", isTrashed = false })
         lr.respondJson(201, { id = "new", status = "created" })
-        lr.respondJson(200, { id = "old" })
+        lr.respondJson(200, { id = "old", isTrashed = false })
         lr.respond({ status = 204 })
         noSpaces()
         lr.respondJson(200, { { id = "new", success = true } })
@@ -453,8 +452,8 @@ describe("Provider", function()
 
         publish(exportContext)
 
-        assert.is_truthy(string.find(chunk(3, "sidecarData").content, "<xmp:Rating>2</xmp:Rating>", 1, true))
-        assert.are.same({ sourceId = "old", targetId = "new", sidecar = false }, requestBody(5))
+        assert.is_truthy(string.find(chunk(2, "sidecarData").content, "<xmp:Rating>2</xmp:Rating>", 1, true))
+        assert.are.same({ sourceId = "old", targetId = "new", sidecar = false }, requestBody(4))
         assert.are.equal("new", rendition.recordedId)
       end)
 
@@ -956,9 +955,8 @@ describe("Provider", function()
       local exportContext = newExportContext(newService({ other, collection }), collection, { rendition })
 
       albumExists()
-      lr.respondJson(200, { id = "old", isTrashed = false })
       lr.respondJson(201, { id = "new", status = "created" })
-      lr.respondJson(200, { id = "old" })
+      lr.respondJson(200, { id = "old", isTrashed = false })
       lr.respond({ status = 204 })
       noSpaces()
       lr.respondJson(200, { { id = "new", success = false, error = "duplicate" } })
@@ -968,7 +966,6 @@ describe("Provider", function()
 
       assert.are.same({
         "GET /albums/album",
-        "GET /assets/old",
         "MULTIPART /assets",
         "GET /assets/old",
         "PUT /assets/copy",
@@ -976,9 +973,9 @@ describe("Provider", function()
         "PUT /albums/album/assets",
         "DELETE /assets",
       }, calls())
-      assert.are.same({ sourceId = "old", targetId = "new", sidecar = false }, requestBody(5))
-      assert.are.same({ assetIds = { "old", "new" } }, requestBody(6))
-      assert.are.same({ ids = { "old" }, force = true }, requestBody(8))
+      assert.are.same({ sourceId = "old", targetId = "new", sidecar = false }, requestBody(4))
+      assert.are.same({ assetIds = { "old", "new" } }, requestBody(5))
+      assert.are.same({ ids = { "old" }, force = true }, requestBody(7))
 
       assert.are.equal("new", rendition.recordedId)
       assert.is_nil(rendition.failure)
@@ -998,9 +995,8 @@ describe("Provider", function()
         exportContext = newExportContext(newService({ collection }), collection, { rendition })
 
         albumExists()
-        lr.respondJson(200, { id = "old", isTrashed = false })
         lr.respondJson(201, { id = "new", status = "created" })
-        lr.respondJson(200, { id = "old" })
+        lr.respondJson(200, { id = "old", isTrashed = false })
         lr.respond({ status = 204 })
       end)
 
@@ -1021,7 +1017,6 @@ describe("Provider", function()
 
         assert.are.same({
           "GET /albums/album",
-          "GET /assets/old",
           "MULTIPART /assets",
           "GET /assets/old",
           "PUT /assets/copy",
@@ -1030,7 +1025,7 @@ describe("Provider", function()
           "PUT /albums/album/assets",
           "DELETE /assets",
         }, calls())
-        assert.are.same({ assetIds = { "new" } }, requestBody(7))
+        assert.are.same({ assetIds = { "new" } }, requestBody(6))
         assert.are.equal("new", rendition.recordedId)
       end)
 
@@ -1054,8 +1049,8 @@ describe("Provider", function()
 
         -- The replacement is deleted and the old asset is left alone.
         assert.are.equal("The gallery returned an error: 500", rendition.failure)
-        assert.are.same({ ids = { "new" }, force = true }, requestBody(8))
-        assert.are.equal(8, #lr.http.requests)
+        assert.are.same({ ids = { "new" }, force = true }, requestBody(7))
+        assert.are.equal(7, #lr.http.requests)
       end)
     end)
 
@@ -1070,10 +1065,9 @@ describe("Provider", function()
       local exportContext = newExportContext(newService({ first, second, collection }), collection, { rendition })
 
       albumExists()
+      lr.respondJson(201, { id = "new", status = "created" })
       lr.respond({ status = 404 })
       lr.respondJson(200, { id = "old", isTrashed = false })
-      lr.respondJson(201, { id = "new", status = "created" })
-      lr.respondJson(200, { id = "old" })
       lr.respond({ status = 204 })
       noSpaces()
       lr.respondJson(200, { { id = "new", success = true } })
@@ -1081,19 +1075,20 @@ describe("Provider", function()
 
       publish(exportContext)
 
+      -- The missing asset was already checked so isn't checked again before
+      -- deleting.
       assert.are.same({
         "GET /albums/album",
-        "GET /assets/gone",
-        "GET /assets/old",
         "MULTIPART /assets",
+        "GET /assets/gone",
         "GET /assets/old",
         "PUT /assets/copy",
         "POST /assets/spaces",
         "PUT /albums/album/assets",
         "DELETE /assets",
       }, calls())
-      assert.are.same({ ids = { "old" }, force = true }, requestBody(9))
-      assert.are.same({ sourceId = "old", targetId = "new", sidecar = false }, requestBody(6))
+      assert.are.same({ ids = { "old" }, force = true }, requestBody(8))
+      assert.are.same({ sourceId = "old", targetId = "new", sidecar = false }, requestBody(5))
       assert.are.equal("new", rendition.recordedId)
       assert.are.equal("new", missing.remoteId)
       assert.are.equal("new", existing.remoteId)
@@ -1178,9 +1173,8 @@ describe("Provider", function()
       local exportContext = newExportContext(newService({ collection }), collection, { rendition })
 
       albumExists()
-      lr.respondJson(200, { id = "old", isTrashed = false })
       lr.respondJson(201, { id = "new", status = "created" })
-      lr.respondJson(200, { id = "old" })
+      lr.respondJson(200, { id = "old", isTrashed = false })
       lr.respond({ status = 500 })
       lr.respond({ status = 204 })
 
@@ -1188,13 +1182,12 @@ describe("Provider", function()
 
       assert.are.same({
         "GET /albums/album",
-        "GET /assets/old",
         "MULTIPART /assets",
         "GET /assets/old",
         "PUT /assets/copy",
         "DELETE /assets",
       }, calls())
-      assert.are.same({ ids = { "new" }, force = true }, requestBody(6))
+      assert.are.same({ ids = { "new" }, force = true }, requestBody(5))
       assert.are.equal("The gallery returned an error: 500", rendition.failure)
     end)
 
@@ -1249,16 +1242,16 @@ describe("Provider", function()
 
       albumExists()
       -- The first photo replaces the asset the other collection uses.
-      lr.respondJson(200, { id = "old", isTrashed = false })
       lr.respondJson(201, { id = "new", status = "created" })
-      lr.respondJson(200, { id = "old" })
+      lr.respondJson(200, { id = "old", isTrashed = false })
       lr.respond({ status = 204 })
       noSpaces()
       lr.respondJson(200, { { id = "new", success = true } })
-      lr.respond({ status = 204 })
       -- The second photo is cancelled.
       lr.respondJson(201, { id = "second", status = "created" })
       lr.respondJson(200, { { id = "second", success = true } })
+      lr.respond({ status = 204 })
+      -- The first photo's old asset is still deleted.
       lr.respond({ status = 204 })
 
       local ok, err = lr.modules.LrFunctionContext.pcallWithContext("test", function(context)
@@ -1268,15 +1261,16 @@ describe("Provider", function()
       assert.is_false(ok)
       assert.are.equal(lr.CANCELED, err)
 
+      -- The cancelled photo's upload was removed.
+      assert.are.same({ ids = { "second" }, force = true }, requestBody(9))
+
       -- The old asset was deleted so the other collection must reference the
       -- new one.
-      assert.are.same({ ids = { "old" }, force = true }, requestBody(8))
+      assert.are.same({ ids = { "old" }, force = true }, requestBody(10))
+      assert.are.equal(10, #lr.http.requests)
       assert.are.equal("new", otherPublished.remoteId)
       assert.is_true(otherPublished.edited)
       assert.are.same({ "Update Published Photos" }, lr.catalog.writeActions)
-
-      -- The cancelled photo's upload was removed.
-      assert.are.same({ ids = { "second" }, force = true }, requestBody(11))
     end)
 
     it("doesn't delete old assets until the photo references the new one", function()
@@ -1290,9 +1284,8 @@ describe("Provider", function()
       local exportContext = newExportContext(newService({ collection }), collection, { rendition })
 
       albumExists()
-      lr.respondJson(200, { id = "old", isTrashed = false })
       lr.respondJson(201, { id = "new", status = "created" })
-      lr.respondJson(200, { id = "old" })
+      lr.respondJson(200, { id = "old", isTrashed = false })
       lr.respond({ status = 204 })
       noSpaces()
       lr.respondJson(200, { { id = "new", success = true } })
@@ -1308,7 +1301,7 @@ describe("Provider", function()
 
       publish(exportContext)
 
-      assert.are.same({ ids = { "old" }, force = true }, requestBody(8))
+      assert.are.same({ ids = { "old" }, force = true }, requestBody(7))
       assert.is_true(recordedBeforeDelete)
     end)
 
@@ -1336,9 +1329,8 @@ describe("Provider", function()
       local exportContext = newExportContext(newService({ other, collection }), collection, { rendition })
 
       albumExists()
-      lr.respondJson(200, { id = "old", isTrashed = false })
       lr.respondJson(201, { id = "new", status = "created" })
-      lr.respondJson(200, { id = "old" })
+      lr.respondJson(200, { id = "old", isTrashed = false })
       lr.respond({ status = 204 })
       noSpaces()
       lr.respondJson(200, { { id = "new", success = false, error = "no_permission" } })
@@ -1349,7 +1341,6 @@ describe("Provider", function()
       -- Only the new upload is deleted.
       assert.are.same({
         "GET /albums/album",
-        "GET /assets/old",
         "MULTIPART /assets",
         "GET /assets/old",
         "PUT /assets/copy",
@@ -1357,7 +1348,7 @@ describe("Provider", function()
         "PUT /albums/album/assets",
         "DELETE /assets",
       }, calls())
-      assert.are.same({ ids = { "new" }, force = true }, requestBody(8))
+      assert.are.same({ ids = { "new" }, force = true }, requestBody(7))
       assert.are.equal("Could not add the photo to the album: no_permission", rendition.failure)
       assert.are.equal("old", otherPublished.remoteId)
       assert.are.same({}, lr.catalog.writeActions)
@@ -1370,9 +1361,9 @@ describe("Provider", function()
       local exportContext = newExportContext(newService({ collection }), collection, { rendition })
 
       albumExists()
-      lr.respondJson(200, { id = "old", isTrashed = false })
       lr.respondJson(200, { id = "phone", status = "duplicate" })
       lr.respondJson(200, { { id = "phone", success = true } })
+      lr.respondJson(200, { id = "old", isTrashed = false })
       noSpaces()
       lr.respondJson(200, { { id = "album", albumName = "Holiday" } })
       lr.respond({ status = 204 })
@@ -1382,9 +1373,9 @@ describe("Provider", function()
       -- Nothing was copied from the old asset so it is checked before deleting.
       assert.are.same({
         "GET /albums/album",
-        "GET /assets/old",
         "MULTIPART /assets",
         "PUT /albums/album/assets",
+        "GET /assets/old",
         "POST /assets/spaces",
         "GET /albums?assetId=old",
         "DELETE /assets",
@@ -1399,9 +1390,9 @@ describe("Provider", function()
       local exportContext = newExportContext(newService({ collection }), collection, { rendition })
 
       albumExists()
-      lr.respondJson(200, { id = "old", isTrashed = false })
       lr.respondJson(200, { id = "phone", status = "duplicate" })
       lr.respondJson(200, { { id = "phone", success = true } })
+      lr.respondJson(200, { id = "old", isTrashed = false })
       noSpaces()
       lr.respondJson(200, { { id = "album", albumName = "Holiday" }, { id = "handmade", albumName = "Favourites" } })
 
@@ -1418,9 +1409,8 @@ describe("Provider", function()
       local exportContext = newExportContext(newService({ collection }), collection, { rendition })
 
       albumExists()
-      lr.respondJson(200, { id = "old", isTrashed = false })
       lr.respondJson(201, { id = "new", status = "created" })
-      lr.respondJson(200, { id = "old" })
+      lr.respondJson(200, { id = "old", isTrashed = false })
       lr.respond({ status = 204 })
       lr.respondJson(200, {
         assets = {
@@ -1435,7 +1425,6 @@ describe("Provider", function()
 
       assert.are.same({
         "GET /albums/album",
-        "GET /assets/old",
         "MULTIPART /assets",
         "GET /assets/old",
         "PUT /assets/copy",
@@ -1443,41 +1432,97 @@ describe("Provider", function()
         "PUT /albums/album/assets",
         "DELETE /assets",
       }, calls())
-      assert.are.same({ ids = { "old" }, force = true }, requestBody(8))
+      assert.are.same({ ids = { "old" }, force = true }, requestBody(7))
     end)
 
-    it("doesn't delete an asset to replace that is gone before copying", function()
+    it("doesn't try to delete an asset to replace that is already gone", function()
       local collection = newCollection(10, "Holiday", "album")
       local rendition = newRendition(newPhoto(1), "old")
       local exportContext = newExportContext(newService({ collection }), collection, { rendition })
 
       albumExists()
-      lr.respondJson(200, { id = "old", isTrashed = false })
       lr.respondJson(201, { id = "new", status = "created" })
       lr.respond({ status = 404 })
       lr.respondJson(200, { { id = "new", success = true } })
-      -- Planning saw the old asset, so it is treated as stale.
-      noSpaces()
-      lr.respondJson(200, {})
-      lr.respondJson(400, { message = "Not found or no asset.delete access" })
-      lr.respond({ status = 404 })
 
       publish(exportContext)
 
       assert.are.same({
         "GET /albums/album",
-        "GET /assets/old",
         "MULTIPART /assets",
         "GET /assets/old",
         "PUT /albums/album/assets",
-        "POST /assets/spaces",
-        "GET /albums?assetId=old",
-        "DELETE /assets",
-        "GET /assets/old",
       }, calls())
       assert.are.equal("new", rendition.recordedId)
       assert.is_nil(rendition.failure)
-      assert.is_falsy(lr.logged("failed to delete stale assets"))
+    end)
+
+    it("replaces an asset in the trash without restoring it", function()
+      local collection = newCollection(10, "Holiday", "album")
+      local rendition = newRendition(newPhoto(1), "old")
+      local exportContext = newExportContext(newService({ collection }), collection, { rendition })
+
+      albumExists()
+      lr.respondJson(201, { id = "new", status = "created" })
+      lr.respondJson(200, { id = "old", isTrashed = true })
+      lr.respond({ status = 204 })
+      noSpaces()
+      lr.respondJson(200, { { id = "new", success = true } })
+      lr.respond({ status = 204 })
+
+      publish(exportContext)
+
+      assert.are.same({
+        "GET /albums/album",
+        "MULTIPART /assets",
+        "GET /assets/old",
+        "PUT /assets/copy",
+        "POST /assets/spaces",
+        "PUT /albums/album/assets",
+        "DELETE /assets",
+      }, calls())
+      assert.are.same({ ids = { "old" }, force = true }, requestBody(7))
+      assert.are.equal("new", rendition.recordedId)
+    end)
+
+    it("deletes the old assets of several photos in one request", function()
+      local first = newPhoto(1)
+      local second = newPhoto(2)
+      local collection = newCollection(10, "Holiday", "album")
+      local renditions = { newRendition(first, "old1"), newRendition(second, "old2") }
+      local exportContext = newExportContext(newService({ collection }), collection, renditions)
+
+      albumExists()
+      lr.respondJson(201, { id = "new1", status = "created" })
+      lr.respondJson(200, { id = "old1", isTrashed = false })
+      lr.respond({ status = 204 })
+      -- The server doesn't support shared spaces, which is only asked once.
+      lr.respond({ status = 404 })
+      lr.respondJson(200, { { id = "new1", success = true } })
+      lr.respondJson(201, { id = "new2", status = "created" })
+      lr.respondJson(200, { id = "old2", isTrashed = false })
+      lr.respond({ status = 204 })
+      lr.respondJson(200, { { id = "new2", success = true } })
+      lr.respond({ status = 204 })
+
+      publish(exportContext)
+
+      assert.are.same({
+        "GET /albums/album",
+        "MULTIPART /assets",
+        "GET /assets/old1",
+        "PUT /assets/copy",
+        "POST /assets/spaces",
+        "PUT /albums/album/assets",
+        "MULTIPART /assets",
+        "GET /assets/old2",
+        "PUT /assets/copy",
+        "PUT /albums/album/assets",
+        "DELETE /assets",
+      }, calls())
+      assert.are.same({ ids = { "old1", "old2" }, force = true }, requestBody(11))
+      assert.are.equal("new1", renditions[1].recordedId)
+      assert.are.equal("new2", renditions[2].recordedId)
     end)
 
     it("logs the decision made for each photo", function()
