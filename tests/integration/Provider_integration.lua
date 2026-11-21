@@ -1,3 +1,6 @@
+-- The tests use the API's private fields to inspect the server directly.
+---@diagnostic disable: invisible
+
 local server = require("server")
 local lr = require("lr_stubs")
 local catalog = require("lr_catalog")
@@ -87,7 +90,7 @@ describe("Provider against a real server", function()
     end
 
     lr.catalog.getPublishedCollectionByLocalIdentifier = function(_, id)
-      assert.equals(collection.localIdentifier, id)
+      assert.are.equal(collection.localIdentifier, id)
       return collection
     end
 
@@ -164,9 +167,9 @@ describe("Provider against a real server", function()
 
       local newId = published.remoteId
       assert.is_string(newId)
-      assert.not_equals(oldId, newId)
+      assert.are_not.equal(oldId, newId)
       assert.is_false(published.edited)
-      assert.equals(server.url .. "/photos/" .. newId, published.remoteUrl)
+      assert.are.equal(server.url .. "/photos/" .. newId, published.remoteUrl)
       assert.is_true(ok(api:getAsset(newId)).isFavorite)
       assert.same({ collection.remoteId }, albumsFor(newId))
       server.waitUntilDeleted(api, oldId)
@@ -181,7 +184,7 @@ describe("Provider against a real server", function()
       publish(service, collection)
 
       local metadata = ok(api:request("GET", "/assets/" .. published.remoteId .. "/metadata/LrNoodle"))
-      assert.equals("LrNoodle", metadata.key)
+      assert.are.equal("LrNoodle", metadata.key)
       assert.same({ publishService = server.settings().serviceId, photoUuid = "uuid-1" }, metadata.value)
     end)
 
@@ -197,7 +200,7 @@ describe("Provider against a real server", function()
       local renditions = publish(service, secondCollection)
 
       local oldId = first.remoteId
-      assert.equals(oldId, second.remoteId)
+      assert.are.equal(oldId, second.remoteId)
       assert.is_true(renditions[1].skipped)
       assert.same(sorted({ firstCollection.remoteId, secondCollection.remoteId }), albumsFor(oldId))
 
@@ -206,15 +209,15 @@ describe("Provider against a real server", function()
       publish(service, firstCollection)
 
       local newId = first.remoteId
-      assert.not_equals(oldId, newId)
-      assert.equals(newId, second.remoteId)
+      assert.are_not.equal(oldId, newId)
+      assert.are.equal(newId, second.remoteId)
       assert.is_true(second.edited)
       server.waitUntilDeleted(api, oldId)
 
       renditions = publish(service, secondCollection)
 
       assert.is_true(renditions[1].skipped)
-      assert.equals(newId, second.remoteId)
+      assert.are.equal(newId, second.remoteId)
       assert.is_false(second.edited)
       assert.same(sorted({ firstCollection.remoteId, secondCollection.remoteId }), albumsFor(newId))
     end)
@@ -232,12 +235,12 @@ describe("Provider against a real server", function()
       -- The same file uploaded some other way, e.g. from a phone.
       local file = server.photo()
       local existing = ok(setup:uploadAsset(file, "phone.jpg", { created = 0, modified = 0 }))
-      assert.equals("created", existing.status)
+      assert.are.equal("created", existing.status)
 
       catalog.editPhoto(service, photo)
       publish(service, collection, { files = { [1] = file } })
 
-      assert.equals(existing.id, published.remoteId)
+      assert.are.equal(existing.id, published.remoteId)
       assert.same({ collection.remoteId }, albumsFor(existing.id))
       -- Nothing is copied over the existing asset.
       assert.is_false(ok(api:getAsset(existing.id)).isFavorite)
@@ -248,7 +251,7 @@ describe("Provider against a real server", function()
       -- The same file uploaded some other way, e.g. from a phone.
       local file = server.photo()
       local existing = ok(setup:uploadAsset(file, "phone.jpg", { created = 0, modified = 0 }))
-      assert.equals("created", existing.status)
+      assert.are.equal("created", existing.status)
       ok(setup:request("PUT", "/assets", { ids = { existing.id }, isFavorite = true }))
 
       local photo = catalog.newPhoto(1)
@@ -258,7 +261,7 @@ describe("Provider against a real server", function()
 
       publish(service, collection, { files = { [1] = file } })
 
-      assert.equals(existing.id, published.remoteId)
+      assert.are.equal(existing.id, published.remoteId)
       assert.same({ collection.remoteId }, albumsFor(existing.id))
 
       catalog.editPhoto(service, photo)
@@ -267,7 +270,7 @@ describe("Provider against a real server", function()
       -- The existing asset is treated like one the plugin uploaded: its details
       -- are copied to the new asset and it is permanently deleted.
       local newId = published.remoteId
-      assert.not_equals(existing.id, newId)
+      assert.are_not.equal(existing.id, newId)
       assert.is_true(ok(api:getAsset(newId)).isFavorite)
       assert.same({ collection.remoteId }, albumsFor(newId))
       server.waitUntilDeleted(api, existing.id)
@@ -287,7 +290,7 @@ describe("Provider against a real server", function()
       publish(service, collection)
 
       assert.is_string(collection.remoteId)
-      assert.not_equals(oldAlbum, collection.remoteId)
+      assert.are_not.equal(oldAlbum, collection.remoteId)
       assert.same({ collection.remoteId }, albumsFor(first.remoteId))
       assert.same({ collection.remoteId }, albumsFor(second.remoteId))
     end)
@@ -309,7 +312,7 @@ describe("Provider against a real server", function()
       local renditions = publish(service, secondCollection)
 
       assert.is_true(renditions[1].skipped)
-      assert.equals(id, second.remoteId)
+      assert.are.equal(id, second.remoteId)
       assert.is_false(isTrashed(id))
       assert.same(sorted({ firstCollection.remoteId, secondCollection.remoteId }), albumsFor(id))
     end)
@@ -330,7 +333,7 @@ describe("Provider against a real server", function()
       publish(service, collection)
 
       local newId = published.remoteId
-      assert.not_equals(oldId, newId)
+      assert.are_not.equal(oldId, newId)
       assert.is_false(isTrashed(newId))
       assert.is_true(ok(api:getAsset(newId)).isFavorite)
       assert.same({ collection.remoteId }, albumsFor(newId))
@@ -355,7 +358,7 @@ describe("Provider against a real server", function()
       publish(service, collection)
 
       local newId = published.remoteId
-      assert.not_equals(oldId, newId)
+      assert.are_not.equal(oldId, newId)
       assert.same(sorted({ direct, linked }), sorted(ok(api:getAssetSpaces({ newId }))[newId]))
       server.waitUntilDeleted(api, oldId)
     end)
@@ -384,6 +387,7 @@ describe("Provider against a real server", function()
       })
 
       local file = io.open(video .. ".xmp")
+      ---@diagnostic disable-next-line: redundant-parameter
       assert.is_nil(file, "The sidecar was not deleted")
 
       -- The server reads the sidecar in the background.
@@ -396,12 +400,12 @@ describe("Provider against a real server", function()
         os.execute("sleep 0.2")
       end
 
-      assert.equals("VIDEO", asset.type)
-      assert.equals(4, asset.exifInfo.rating)
-      assert.equals("A tall tower", asset.exifInfo.description)
-      assert.equals("2001-01-02T01:00:00+00:00", asset.exifInfo.dateTimeOriginal)
-      assert.equals(48.8584, asset.exifInfo.latitude)
-      assert.equals(-2.2945, asset.exifInfo.longitude)
+      assert.are.equal("VIDEO", asset.type)
+      assert.are.equal(4, asset.exifInfo.rating)
+      assert.are.equal("A tall tower", asset.exifInfo.description)
+      assert.are.equal("2001-01-02T01:00:00+00:00", asset.exifInfo.dateTimeOriginal)
+      assert.are.equal(48.8584, asset.exifInfo.latitude)
+      assert.are.equal(-2.2945, asset.exifInfo.longitude)
 
       local tags = {}
       for _, tag in ipairs(asset.tags or {}) do
@@ -444,10 +448,10 @@ describe("Provider against a real server", function()
 
       local config = http.get(url, headers)
       local changed, count = string.gsub(config, '"faces":{"import":%a+}', '"faces":{"import":' .. tostring(faces) .. "}")
-      assert.equals(1, count)
+      assert.are.equal(1, count)
 
       local _, response = http.post(url, changed, headers, "PUT")
-      assert.equals(200, response.status)
+      assert.are.equal(200, response.status)
     end
 
     -- Waits for the server to read the asset's tags and people, then returns
@@ -531,7 +535,7 @@ describe("Provider against a real server", function()
       })
 
       local newId = published.remoteId
-      assert.not_equals(oldId, newId)
+      assert.are_not.equal(oldId, newId)
       local tags, people = tagsAndPeople(newId)
       -- Nothing from the old asset's tags is kept.
       assert.same({ "Family", "bike" }, tags)
@@ -550,7 +554,7 @@ describe("Provider against a real server", function()
       local id = published.remoteId
       removePhotos(collection, { published })
 
-      assert.equals(0, #collection.publishedPhotos)
+      assert.are.equal(0, #collection.publishedPhotos)
       assert.same({}, albumsFor(id))
       assert.is_true(isTrashed(id))
     end)
@@ -619,7 +623,7 @@ describe("Provider against a real server", function()
 
       deleteCollection(service, collection)
 
-      assert.equals("notFound", Utils.error(api:getAlbum(albumId)).code)
+      assert.are.equal("notFound", Utils.error(api:getAlbum(albumId)).code)
       assert.is_true(isTrashed(orphan.remoteId))
       assert.is_false(isTrashed(kept.remoteId))
       assert.same({ other.remoteId }, albumsFor(kept.remoteId))

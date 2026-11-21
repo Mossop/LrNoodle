@@ -20,6 +20,7 @@ local function body(index)
   return json.decode(request(index).body)
 end
 
+---@return any
 local function chunk(req, name)
   for _, c in ipairs(req.chunks) do
     if c.name == name then

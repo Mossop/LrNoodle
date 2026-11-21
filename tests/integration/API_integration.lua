@@ -1,3 +1,6 @@
+-- The tests use the API's private fields to inspect the server directly.
+---@diagnostic disable: invisible
+
 local server = require("server")
 local catalog = require("lr_catalog")
 local API = require("API")
@@ -32,8 +35,9 @@ describe("API against a real server", function()
 
   -- Asserts that a result is an error with the given code.
   local function fails(code, result)
+    ---@diagnostic disable-next-line: redundant-parameter
     assert.is_true(Utils.isError(result), "Expected an error")
-    assert.equals(code, Utils.error(result).code)
+    assert.are.equal(code, Utils.error(result).code)
   end
 
   ---@param path string
@@ -48,7 +52,7 @@ describe("API against a real server", function()
     local path = server.photo()
     local result = uploadFile(path)
     os.remove(path)
-    assert.equals("created", result.status)
+    assert.are.equal("created", result.status)
     return result.id
   end
 
@@ -67,7 +71,7 @@ describe("API against a real server", function()
   describe("connection", function()
     it("connects with the api key", function()
       local user = ok(api:checkConnection())
-      assert.equals(server.email, user.email)
+      assert.are.equal(server.email, user.email)
     end)
 
     it("rejects a bad api key", function()
@@ -81,10 +85,10 @@ describe("API against a real server", function()
       local id = upload()
 
       local asset = ok(api:getAsset(id))
-      assert.equals(id, asset.id)
+      assert.are.equal(id, asset.id)
       assert.is_false(asset.isTrashed)
-      assert.equals("2001-01-01T00:00:00.000Z", asset.fileCreatedAt)
-      assert.equals("2001-01-02T01:00:00.000Z", asset.fileModifiedAt)
+      assert.are.equal("2001-01-01T00:00:00.000Z", asset.fileCreatedAt)
+      assert.are.equal("2001-01-02T01:00:00.000Z", asset.fileModifiedAt)
     end)
 
     it("reports a duplicate with the existing asset", function()
@@ -93,9 +97,9 @@ describe("API against a real server", function()
       local second = uploadFile(path)
       os.remove(path)
 
-      assert.equals("created", first.status)
-      assert.equals("duplicate", second.status)
-      assert.equals(first.id, second.id)
+      assert.are.equal("created", first.status)
+      assert.are.equal("duplicate", second.status)
+      assert.are.equal(first.id, second.id)
     end)
   end)
 
@@ -288,7 +292,7 @@ describe("API against a real server", function()
       local result = ok(api:uploadAsset(path, "photo.jpg", dates, nil, sidecarPath))
       os.remove(path)
       os.remove(sidecarPath)
-      assert.equals("created", result.status)
+      assert.are.equal("created", result.status)
 
       assertDetails(with(expected, { isFavorite = false, visibility = "timeline", albums = {} }), result.id)
 
@@ -350,11 +354,11 @@ describe("API against a real server", function()
   describe("albums", function()
     it("creates, renames and deletes albums", function()
       local album = ok(api:createAlbum("First name"))
-      assert.equals("First name", album.albumName)
+      assert.are.equal("First name", album.albumName)
 
       local renamed = ok(api:renameAlbum(album.id, "Second name"))
-      assert.equals("Second name", renamed.albumName)
-      assert.equals("Second name", ok(api:getAlbum(album.id)).albumName)
+      assert.are.equal("Second name", renamed.albumName)
+      assert.are.equal("Second name", ok(api:getAlbum(album.id)).albumName)
 
       ok(api:deleteAlbum(album.id))
       fails("notFound", api:getAlbum(album.id))
@@ -366,19 +370,19 @@ describe("API against a real server", function()
       local album = ok(api:createAlbum("Assets"))
 
       local added = ok(api:addAssetsToAlbum(album.id, { first, second }))
-      assert.equals(2, #added)
+      assert.are.equal(2, #added)
       assert.is_true(added[1].success)
       assert.is_true(added[2].success)
 
       local albums = ok(api:getAlbumsForAsset(first))
-      assert.equals(1, #albums)
-      assert.equals(album.id, albums[1].id)
+      assert.are.equal(1, #albums)
+      assert.are.equal(album.id, albums[1].id)
 
       local removed = ok(api:removeAssetsFromAlbum(album.id, { first }))
-      assert.equals(1, #removed)
+      assert.are.equal(1, #removed)
       assert.is_true(removed[1].success)
-      assert.equals(0, #ok(api:getAlbumsForAsset(first)))
-      assert.equals(1, #ok(api:getAlbumsForAsset(second)))
+      assert.are.equal(0, #ok(api:getAlbumsForAsset(first)))
+      assert.are.equal(1, #ok(api:getAlbumsForAsset(second)))
     end)
 
     it("reports assets that can't be added", function()
@@ -387,9 +391,9 @@ describe("API against a real server", function()
       ok(api:addAssetsToAlbum(album.id, { id }))
 
       local added = ok(api:addAssetsToAlbum(album.id, { id, MISSING_ID }))
-      assert.equals(2, #added)
+      assert.are.equal(2, #added)
       assert.is_false(added[1].success)
-      assert.equals("duplicate", added[1].error)
+      assert.are.equal("duplicate", added[1].error)
       assert.is_false(added[2].success)
     end)
   end)

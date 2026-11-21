@@ -87,8 +87,8 @@ describe("Utils", function()
       end)
 
       assert.is_true(Utils.isError(result))
-      assert.are.equal("exception", result.code)
-      assert.are.same({ "bad" }, result.args)
+      assert.are.equal("exception", Utils.error(result).code)
+      assert.are.same({ "bad" }, Utils.error(result).args)
 
       local errors = lr.logsAt("error")
       assert.are.equal(1, #errors)
@@ -97,6 +97,8 @@ describe("Utils", function()
 
     it("rethrows cancellation", function()
       local ok, err = pcall(Utils.safeCall, logger, "action", function()
+        -- LuaLS doesn't know the stubbed throwCanceled never returns.
+        ---@diagnostic disable-next-line: missing-return
         lr.modules.LrErrors.throwCanceled()
       end)
 

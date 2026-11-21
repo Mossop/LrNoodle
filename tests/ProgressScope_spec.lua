@@ -10,6 +10,7 @@ local function assertPositions(expected)
   local actual = positions()
   assert.are.equal(#expected, #actual, "Expected " .. #expected .. " positions but saw " .. #actual)
   for i = 1, #expected do
+    ---@diagnostic disable-next-line: redundant-parameter
     assert.is_true(math.abs(expected[i] - actual[i]) < 1e-9, "Position " .. i .. " was " .. actual[i])
   end
 end

@@ -389,6 +389,7 @@ function M.reset()
   end
 end
 
+---@diagnostic disable-next-line: lowercase-global
 function import(name) -- luacheck: ignore
   local module = M.modules[name]
   if not module then

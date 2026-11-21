@@ -19,8 +19,7 @@ Immich compatible; the spec is at `https://gallery.clantownsend.com/api/spec.jso
 ## Commands
 
 Use mise tasks, not the tools directly: `mise r test`, `mise r stylua`, `mise r luacheck`,
-`mise r typecheck`. All four must pass after every change. The typecheck only covers the plugin, so the
-LuaLS warnings about busted globals in `tests/` are expected and can be ignored.
+`mise r typecheck`. All four must pass after every change.
 
 ## Conventions
 

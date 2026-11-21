@@ -48,6 +48,7 @@ local function requestBody(index)
 end
 
 -- Finds a multipart chunk in a recorded request.
+---@return any
 local function chunk(index, name)
   for _, c in ipairs(lr.http.requests[index].chunks) do
     if c.name == name then
@@ -386,6 +387,7 @@ describe("Provider", function()
         metadata.isVideo = true
         local rendition = newRendition(newPhoto(1, metadata), publishedPhotoId)
         render = os.tmpname()
+        ---@diagnostic disable-next-line: duplicate-set-field
         function rendition:waitForRender()
           return true, render
         end
@@ -1163,6 +1165,7 @@ describe("Provider", function()
     it("deletes the uploaded asset when an unexpected error occurs", function()
       local collection = newCollection(10, "Holiday", "album")
       local rendition = newRendition(newPhoto(1), nil)
+      ---@diagnostic disable-next-line: duplicate-set-field
       function rendition:recordPublishedPhotoId()
         error("catalog exploded")
       end
@@ -1223,6 +1226,7 @@ describe("Provider", function()
     it("deletes the uploaded asset when cancelled and still cancels", function()
       local collection = newCollection(10, "Holiday", "album")
       local rendition = newRendition(newPhoto(1), nil)
+      ---@diagnostic disable-next-line: duplicate-set-field
       function rendition:recordPublishedPhotoId()
         lr.modules.LrErrors.throwCanceled()
       end
@@ -1248,6 +1252,7 @@ describe("Provider", function()
       local other = newCollection(11, "Other", "otherAlbum", { otherPublished })
       local collection = newCollection(10, "Holiday", "album")
       local cancelled = newRendition(newPhoto(2), nil)
+      ---@diagnostic disable-next-line: duplicate-set-field
       function cancelled:recordPublishedPhotoId()
         lr.modules.LrErrors.throwCanceled()
       end
@@ -1292,6 +1297,7 @@ describe("Provider", function()
       local collection = newCollection(10, "Holiday", "album")
       local rendition = newRendition(photo, "old")
       local recordedBeforeDelete = false
+      ---@diagnostic disable-next-line: duplicate-set-field
       function rendition:recordPublishedPhotoId(id)
         self.recordedId = id
       end
