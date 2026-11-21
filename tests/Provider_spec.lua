@@ -523,6 +523,20 @@ describe("Provider", function()
       assert.is_nil(exportContext.exportSession.remoteCollectionId)
     end)
 
+    it("keeps the name of an album renamed on the server", function()
+      local collection = newCollection(10, "Holiday", "album")
+      local exportContext = newExportContext(newService({ collection }), collection, { newRendition(newPhoto(1), nil) })
+
+      lr.respondJson(200, { id = "album", albumName = "Renamed" })
+      lr.respondJson(201, { id = "asset", status = "created" })
+      lr.respondJson(200, { { id = "asset", success = true } })
+
+      publish(exportContext)
+
+      assert.are.same({ "GET /albums/album", "MULTIPART /assets", "PUT /albums/album/assets" }, calls())
+      assert.is_nil(exportContext.exportSession.remoteCollectionId)
+    end)
+
     it("recreates an album missing from the server with its unedited photos", function()
       local missing = newPublishedPhoto(newPhoto(5), "missing", false)
       local edited = newPublishedPhoto(newPhoto(3), "edited", true)
